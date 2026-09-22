@@ -1,7 +1,13 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import Animated, {
   Easing,
   FadeInDown,
@@ -34,13 +40,17 @@ const DISCOMFORT_OPTIONS = [
 export default function ResilienceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [todayProgress, setTodayProgress] = useState<DailyProgress | null>(null);
+  const [todayProgress, setTodayProgress] = useState<DailyProgress | null>(
+    null,
+  );
   const [todayDiscomfort, setTodayDiscomfort] = useState<number | null>(null);
   const [journal, setJournal] = useState("");
   const [savedJournal, setSavedJournal] = useState(false);
   const [quote, setQuote] = useState("");
   const [avgDiscomfort, setAvgDiscomfort] = useState(0);
-  const [weeklyStress, setWeeklyStress] = useState<{ day: string; level: number; }[]>([]);
+  const [weeklyStress, setWeeklyStress] = useState<
+    { day: string; level: number }[]
+  >([]);
   const breathe = useSharedValue(1);
   const pulse = useSharedValue(1);
 
@@ -99,7 +109,9 @@ export default function ResilienceScreen() {
     setWeeklyStress(week);
 
     const values = week.map((w) => w.level).filter(Boolean);
-    setAvgDiscomfort(values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0);
+    setAvgDiscomfort(
+      values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0,
+    );
   };
 
   useFocusEffect(() => {
@@ -151,13 +163,18 @@ export default function ResilienceScreen() {
         >
           <View>
             <Text style={styles.eyebrow}>RESILIENCIA · FORJA INTERIOR</Text>
-            <Text style={styles.title}>El dolor informa. Tu respuesta define.</Text>
+            <Text style={styles.title}>
+              El dolor informa. Tu respuesta define.
+            </Text>
           </View>
         </Animated.View>
 
         <Pressable
-          style={({ pressed }) => [styles.breathCard, pressed && styles.pressed]}
-          onPress={() => router.push("/breathing")}
+          style={({ pressed }) => [
+            styles.breathCard,
+            pressed && styles.pressed,
+          ]}
+          onPress={() => router.push("/breathing" as never)}
         >
           <Animated.View style={[styles.breathOrbit, breatheStyle]}>
             <View style={styles.breathCore} />
@@ -176,7 +193,9 @@ export default function ResilienceScreen() {
           <View style={styles.cardHead}>
             <View>
               <Text style={styles.cardEyebrow}>REGISTRO DE ESFUERZO</Text>
-              <Text style={styles.cardTitle}>¿Qué tan duro has golpeado hoy?</Text>
+              <Text style={styles.cardTitle}>
+                ¿Qué tan duro has golpeado hoy?
+              </Text>
             </View>
             <Animated.View style={[styles.discomfortAvg, pulseStyle]}>
               <Text style={styles.discomfortAvgNumber}>
@@ -204,13 +223,28 @@ export default function ResilienceScreen() {
                     <View style={styles.discomfortRow}>
                       <Text style={styles.discomfortValue}>0{opt.value}</Text>
                       <View style={styles.discomfortLabels}>
-                        <Text style={[styles.discomfortLabel, selected && styles.discomfortLabelSelected]}>
+                        <Text
+                          style={[
+                            styles.discomfortLabel,
+                            selected && styles.discomfortLabelSelected,
+                          ]}
+                        >
                           {opt.label.toUpperCase()}
                         </Text>
                         <Text style={styles.discomfortHint}>{opt.hint}</Text>
                       </View>
-                      <View style={[styles.discomfortBadge, selected && styles.discomfortBadgeSelected]}>
-                        <Text style={[styles.discomfortBadgeText, selected && styles.discomfortBadgeTextSelected]}>
+                      <View
+                        style={[
+                          styles.discomfortBadge,
+                          selected && styles.discomfortBadgeSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.discomfortBadgeText,
+                            selected && styles.discomfortBadgeTextSelected,
+                          ]}
+                        >
                           {selected ? "✓" : opt.value}
                         </Text>
                       </View>
@@ -228,11 +262,12 @@ export default function ResilienceScreen() {
                     styles.stressFill,
                     {
                       height: `${Math.max(4, d.level * 20)}%`,
-                      backgroundColor: d.level >= 4
-                        ? LUXURY.gold
-                        : d.level >= 2
-                          ? LUXURY.neonSoft
-                          : LUXURY.slate,
+                      backgroundColor:
+                        d.level >= 4
+                          ? LUXURY.gold
+                          : d.level >= 2
+                            ? LUXURY.neonSoft
+                            : LUXURY.slate,
                     },
                   ]}
                 />
@@ -247,10 +282,15 @@ export default function ResilienceScreen() {
           style={[styles.stoicCard]}
         >
           <View style={styles.stoicHead}>
-            <Text style={styles.stoicEyebrow}>ESTOICISMO · MENTE INQUEBRANTABLE</Text>
+            <Text style={styles.stoicEyebrow}>
+              ESTOICISMO · MENTE INQUEBRANTABLE
+            </Text>
             <Pressable
               onPress={rotateQuote}
-              style={({ pressed }) => [styles.rotateChip, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.rotateChip,
+                pressed && styles.pressed,
+              ]}
             >
               <Text style={styles.rotateChipText}>SIGUIENTE ↻</Text>
             </Pressable>
@@ -264,7 +304,8 @@ export default function ResilienceScreen() {
         >
           <Text style={styles.journalEyebrow}>DIARIO DE GUERRA</Text>
           <Text style={styles.journalLabel}>
-            Escribe 3 cosas por las que estás agradecido y un enemigo mental a vencer.
+            Escribe 3 cosas por las que estás agradecido y un enemigo mental a
+            vencer.
           </Text>
           <TextInput
             value={journal}

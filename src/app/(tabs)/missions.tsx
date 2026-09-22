@@ -43,15 +43,28 @@ export default function MissionsScreen() {
   const router = useRouter();
   const [missions, setMissions] = useState<Mission[]>(DEFAULT_MISSIONS);
   const [completedIds, setCompletedIds] = useState<string[]>([]);
-  const [weekly, setWeekly] = useState<Awaited<ReturnType<typeof getWeeklySummary>>({
+  const [weekly, setWeekly] = useState<{
+    days: {
+      date: string;
+      missionsCompleted: number;
+      missionsTotal: number;
+      focusMinutes: number;
+      active: boolean;
+    }[];
+    totalFocus: number;
+    totalMissionsWeek: number;
+    activeDays: number;
+  }>({
     days: [],
     totalFocus: 0,
     totalMissionsWeek: 0,
     activeDays: 0,
   });
   const [newMission, setNewMission] = useState("");
-  const [addingCategory, setAddingCategory] = useState<Mission["category"]>("mindset");
-  const [addingDifficulty, setAddingDifficulty] = useState<Mission["difficulty"]>(1);
+  const [addingCategory, setAddingCategory] =
+    useState<Mission["category"]>("mindset");
+  const [addingDifficulty, setAddingDifficulty] =
+    useState<Mission["difficulty"]>(1);
   const progress = useSharedValue(0);
 
   const nonNegotiableCount = missions.filter((m) => m.nonNegotiable).length;
@@ -60,7 +73,10 @@ export default function MissionsScreen() {
   ).length;
 
   const grouped = useMemo(() => {
-    const entries = Object.entries(CATEGORY_META) as [Mission["category"], typeof CATEGORY_META.discipline][];
+    const entries = Object.entries(CATEGORY_META) as [
+      Mission["category"],
+      typeof CATEGORY_META.discipline,
+    ][];
     return entries.map(([key, meta]) => ({
       key,
       meta,
@@ -71,8 +87,12 @@ export default function MissionsScreen() {
   const load = async () => {
     const all = await getMissions();
     const [progressKey] = new Date().toISOString().split("T");
-    const raw = await (await import("@react-native-async-storage/async-storage")).default.getItem("vertice-daily-progress");
-    const byDay: Record<string, { completedIds?: string[] }> = raw ? JSON.parse(raw) : {};
+    const raw = await (
+      await import("@react-native-async-storage/async-storage")
+    ).default.getItem("vertice-daily-progress");
+    const byDay: Record<string, { completedIds?: string[] }> = raw
+      ? JSON.parse(raw)
+      : {};
     setMissions(all);
     setCompletedIds(byDay[progressKey]?.completedIds ?? []);
     setWeekly(await getWeeklySummary());
@@ -83,9 +103,14 @@ export default function MissionsScreen() {
   });
 
   const target = missions.length
-    ? completedIds.filter((id) => missions.find((m) => m.id === id)?.nonNegotiable).length / Math.max(1, nonNegotiableCount)
+    ? completedIds.filter(
+        (id) => missions.find((m) => m.id === id)?.nonNegotiable,
+      ).length / Math.max(1, nonNegotiableCount)
     : 0;
-  progress.value = withTiming(target, { duration: 800, easing: Easing.out(Easing.cubic) });
+  progress.value = withTiming(target, {
+    duration: 800,
+    easing: Easing.out(Easing.cubic),
+  });
 
   const progressStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
@@ -112,13 +137,13 @@ export default function MissionsScreen() {
     const list = [...missions, next];
     setMissions(list);
     setNewMission("");
-    await (await import("@react-native-async-storage/async-storage")).default.setItem(
-      "vertice-missions",
-      JSON.stringify(list),
-    );
+    await (
+      await import("@react-native-async-storage/async-storage")
+    ).default.setItem("vertice-missions", JSON.stringify(list));
   };
 
-  const allDone = nonNegotiableCount > 0 && nonNegotiableDone === nonNegotiableCount;
+  const allDone =
+    nonNegotiableCount > 0 && nonNegotiableDone === nonNegotiableCount;
 
   return (
     <View style={styles.root}>
@@ -143,7 +168,10 @@ export default function MissionsScreen() {
           </View>
           <Pressable
             onPress={() => router.back()}
-            style={({ pressed }) => [styles.closeChip, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.closeChip,
+              pressed && styles.pressed,
+            ]}
           >
             <Text style={styles.closeChipText}>Cerrar</Text>
           </Pressable>
@@ -161,7 +189,7 @@ export default function MissionsScreen() {
               </Text>
             </View>
             <Text style={styles.heroCount}>
-              {nonNegotiableDone}/{nonNegociableCount}
+              {nonNegotiableDone}/{nonNegotiableCount}
             </Text>
           </View>
           <Text style={styles.heroTitle}>
@@ -176,11 +204,15 @@ export default function MissionsScreen() {
             <Text style={styles.heroWeekly}>
               {weekly.totalMissionsWeek} misiones esta semana
             </Text>
-            <Text style={styles.heroActive}>{weekly.activeDays} días activos</Text>
+            <Text style={styles.heroActive}>
+              {weekly.activeDays} días activos
+            </Text>
           </View>
         </Animated.View>
 
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
           <Animated.View
             entering={FadeInDown.delay(160).duration(500)}
             style={styles.addCard}
@@ -206,10 +238,19 @@ export default function MissionsScreen() {
                         borderColor: `${meta.color}66`,
                       },
                     ]}
-                    onPress={() => setAddingCategory(key as Mission["category"])}
+                    onPress={() =>
+                      setAddingCategory(key as Mission["category"])
+                    }
                   >
-                    <Text style={[styles.chipIcon, { color: meta.color }]}>{meta.icon}</Text>
-                    <Text style={[styles.chipText, addingCategory === key && { color: meta.color }]}>
+                    <Text style={[styles.chipIcon, { color: meta.color }]}>
+                      {meta.icon}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.chipText,
+                        addingCategory === key && { color: meta.color },
+                      ]}
+                    >
                       {meta.label}
                     </Text>
                   </Pressable>
@@ -223,7 +264,9 @@ export default function MissionsScreen() {
                       styles.chipSmall,
                       addingDifficulty === d && styles.chipSmallSelected,
                     ]}
-                    onPress={() => setAddingDifficulty(d as Mission["difficulty"])}
+                    onPress={() =>
+                      setAddingDifficulty(d as Mission["difficulty"])
+                    }
                   >
                     <Text style={styles.chipSmallText}>
                       {"●".repeat(d)} · {d * 15}XP
@@ -257,7 +300,11 @@ export default function MissionsScreen() {
           <View key={group.key} style={{ marginBottom: 22 }}>
             <View style={styles.categoryHead}>
               <View style={styles.categoryTitleRow}>
-                <Text style={[styles.categoryIcon, { color: group.meta.color }]}>{group.meta.icon}</Text>
+                <Text
+                  style={[styles.categoryIcon, { color: group.meta.color }]}
+                >
+                  {group.meta.icon}
+                </Text>
                 <Text style={styles.categoryLabel}>{group.meta.label}</Text>
               </View>
               <Text style={styles.categoryCount}>
@@ -276,14 +323,17 @@ export default function MissionsScreen() {
                 return (
                   <Animated.View
                     key={mission.id}
-                    entering={FadeInRight.delay(260 + gi * 60 + mi * 50).duration(400)}
+                    entering={FadeInRight.delay(
+                      260 + gi * 60 + mi * 50,
+                    ).duration(400)}
                     layout={LinearTransition.springify().damping(14)}
                   >
                     <Pressable
                       style={({ pressed }) => [
                         styles.missionCard,
                         done && styles.missionCardDone,
-                        mission.nonNegotiable && styles.missionCardNonNegotiable,
+                        mission.nonNegotiable &&
+                          styles.missionCardNonNegotiable,
                       ]}
                       onPressIn={() => {
                         scale.value = withSpring(0.97, { damping: 18 });
@@ -298,19 +348,29 @@ export default function MissionsScreen() {
                           <View
                             style={[
                               styles.checkbox,
-                              done && { backgroundColor: group.meta.color, borderColor: group.meta.color },
+                              done && {
+                                backgroundColor: group.meta.color,
+                                borderColor: group.meta.color,
+                              },
                             ]}
                           >
                             {done && <Text style={styles.checkmark}>✓</Text>}
                           </View>
                           <View style={{ flex: 1, marginLeft: 14 }}>
-                            <Text style={[styles.missionText, done && styles.missionTextDone]}>
+                            <Text
+                              style={[
+                                styles.missionText,
+                                done && styles.missionTextDone,
+                              ]}
+                            >
                               {mission.text}
                             </Text>
                             <View style={styles.missionMeta}>
                               {mission.nonNegotiable && (
                                 <View style={styles.nonNegotiableBadge}>
-                                  <Text style={styles.nonNegotiableText}>INNEGOCIABLE</Text>
+                                  <Text style={styles.nonNegotiableText}>
+                                    INNEGOCIABLE
+                                  </Text>
                                 </View>
                               )}
                               <View style={styles.metaPill}>
@@ -318,7 +378,9 @@ export default function MissionsScreen() {
                                   {"●".repeat(mission.difficulty)}
                                 </Text>
                               </View>
-                              <Text style={styles.xpPill}>+{mission.xp} XP</Text>
+                              <Text style={styles.xpPill}>
+                                +{mission.xp} XP
+                              </Text>
                             </View>
                           </View>
                         </View>
@@ -329,8 +391,12 @@ export default function MissionsScreen() {
               })
             ) : (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyText}>Sin misiones en esta categoría.</Text>
-                <Text style={styles.emptyHint}>Crea una propia o completa otras.</Text>
+                <Text style={styles.emptyText}>
+                  Sin misiones en esta categoría.
+                </Text>
+                <Text style={styles.emptyHint}>
+                  Crea una propia o completa otras.
+                </Text>
               </View>
             )}
           </View>
@@ -356,7 +422,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textTransform: "uppercase",
   },
-  title: { color: LUXURY.snow, fontSize: 28, fontWeight: "800", letterSpacing: 0.3 },
+  title: {
+    color: LUXURY.snow,
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
   closeChip: {
     backgroundColor: LUXURY.graphite,
     borderWidth: 1,
@@ -393,7 +464,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   badgeIcon: { color: LUXURY.blood, fontSize: 12 },
-  badgeText: { color: LUXURY.pearl, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  badgeText: {
+    color: LUXURY.pearl,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
   badgeTextDone: { color: LUXURY.emerald },
   heroCount: {
     color: LUXURY.snow,
@@ -488,7 +564,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   addButtonDisabled: { opacity: 0.35 },
-  addButtonText: { color: LUXURY.ink, fontSize: 12, fontWeight: "800", letterSpacing: 1 },
+  addButtonText: {
+    color: LUXURY.ink,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

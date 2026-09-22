@@ -7,9 +7,6 @@ export default function AppTabs() {
     <NativeTabs
       backgroundColor={LUXURY.ink}
       indicatorColor={LUXURY.gold}
-      barTintColor={LUXURY.graphite}
-      activeTintColor={LUXURY.gold}
-      inactiveTintColor={LUXURY.ash}
       labelStyle={{ selected: { color: LUXURY.gold, fontWeight: "700" } }}
     >
       <NativeTabs.Trigger name="index">

@@ -34,13 +34,18 @@ export default function HomeScreen() {
   const [profile, setProfile] = useState<WarriorProfile | null>(null);
   const [streakDays, setStreakDays] = useState(0);
   const [xp, setXp] = useState(0);
-  const [weekly, setWeekly] = useState<Awaited<ReturnType<typeof getWeeklySummary>>>({
+  const [weekly, setWeekly] = useState<
+    Awaited<ReturnType<typeof getWeeklySummary>>
+  >({
     days: [],
     totalFocus: 0,
     totalMissionsWeek: 0,
     activeDays: 0,
   });
-  const [todayMissions, setTodayMissions] = useState({ completed: 0, total: DEFAULT_MISSIONS.length });
+  const [todayMissions, setTodayMissions] = useState({
+    completed: 0,
+    total: DEFAULT_MISSIONS.length,
+  });
   const [todayFocus, setTodayFocus] = useState(0);
   const [quote, setQuote] = useState("");
   const progress = useSharedValue(0);
@@ -56,25 +61,33 @@ export default function HomeScreen() {
       readSessions(),
       getTotalXp(),
       getWeeklySummary(),
-    ]).then(async ([profileRaw, progressByDay, sessions, totalXp, weeklySum]) => {
-      if (profileRaw) setProfile(JSON.parse(profileRaw));
-      const streak = getStreakDays(progressByDay);
-      setStreakDays(streak);
-      setXp(totalXp);
-      setWeekly(weeklySum);
-      const todayKey = new Date().toISOString().slice(0, 10);
-      const todayProgress = progressByDay[todayKey];
-      setTodayMissions({
-        completed: todayProgress?.completedIds.length ?? 0,
-        total: todayProgress?.missionIds.length ?? DEFAULT_MISSIONS.length,
-      });
-      setTodayFocus(
-        sessions
-          .filter((s) => new Date(s.date).toISOString().slice(0, 10) === todayKey)
-          .reduce((t, s) => t + s.minutes, 0),
-      );
-      setQuote(randomStoicQuote(profileRaw ? JSON.parse(profileRaw).name : undefined));
-    });
+    ]).then(
+      async ([profileRaw, progressByDay, sessions, totalXp, weeklySum]) => {
+        if (profileRaw) setProfile(JSON.parse(profileRaw));
+        const streak = getStreakDays(progressByDay);
+        setStreakDays(streak);
+        setXp(totalXp);
+        setWeekly(weeklySum);
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayProgress = progressByDay[todayKey];
+        setTodayMissions({
+          completed: todayProgress?.completedIds.length ?? 0,
+          total: todayProgress?.missionIds.length ?? DEFAULT_MISSIONS.length,
+        });
+        setTodayFocus(
+          sessions
+            .filter(
+              (s) => new Date(s.date).toISOString().slice(0, 10) === todayKey,
+            )
+            .reduce((t, s) => t + s.minutes, 0),
+        );
+        setQuote(
+          randomStoicQuote(
+            profileRaw ? JSON.parse(profileRaw).name : undefined,
+          ),
+        );
+      },
+    );
 
   useFocusEffect(() => {
     load();
@@ -84,7 +97,10 @@ export default function HomeScreen() {
     const target = todayMissions.total
       ? todayMissions.completed / todayMissions.total
       : 0;
-    progress.value = withTiming(target, { duration: 900, easing: Easing.out(Easing.cubic) });
+    progress.value = withTiming(target, {
+      duration: 900,
+      easing: Easing.out(Easing.cubic),
+    });
     pulse.value = withRepeat(
       withSequence(
         withTiming(1.04, { duration: 1400 }),
@@ -110,7 +126,7 @@ export default function HomeScreen() {
   }));
 
   const weekdayLabels = ["L", "M", "X", "J", "V", "S", "D"];
-  const maxFocus = Math.max(60, ...(weekly.days.map((d) => d.focusMinutes)), 1);
+  const maxFocus = Math.max(60, ...weekly.days.map((d) => d.focusMinutes), 1);
 
   return (
     <View style={styles.root}>
@@ -198,17 +214,22 @@ export default function HomeScreen() {
             <Animated.View style={[styles.progressFill, progressStyle]} />
           </View>
           <Pressable
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-            onPress={() => router.push("/focus")}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              pressed && styles.pressed,
+            ]}
+            onPress={() => router.push("/focus" as never)}
           >
-            <Text style={styles.primaryButtonText}>EMPEZAR ENFOQUE PROFUNDO</Text>
+            <Text style={styles.primaryButtonText}>
+              EMPEZAR ENFOQUE PROFUNDO
+            </Text>
             <Text style={styles.buttonArrow}>→</Text>
           </Pressable>
         </Animated.View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Consistencia semanal</Text>
-          <Pressable onPress={() => router.push("/missions")}>
+          <Pressable onPress={() => router.push("/missions" as never)}>
             <Text style={styles.sectionLink}>Ver misiones</Text>
           </Pressable>
         </View>
@@ -219,10 +240,26 @@ export default function HomeScreen() {
         >
           <View style={styles.chartSummary}>
             <Text style={styles.chartValue}>{weekly.activeDays} · 7</Text>
-            <Text style={styles.chartHint}>días activos · {weekly.totalFocus} min</Text>
-            <View style={[styles.streakPill, streakDays > 2 && styles.streakPillHot]}>
-              <Text style={[styles.streakPillText, streakDays > 2 && styles.streakPillTextHot]}>
-                {streakDays > 2 ? `${streakDays} días racha` : streakDays > 0 ? "En marcha" : "Empieza hoy"}
+            <Text style={styles.chartHint}>
+              días activos · {weekly.totalFocus} min
+            </Text>
+            <View
+              style={[
+                styles.streakPill,
+                streakDays > 2 && styles.streakPillHot,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.streakPillText,
+                  streakDays > 2 && styles.streakPillTextHot,
+                ]}
+              >
+                {streakDays > 2
+                  ? `${streakDays} días racha`
+                  : streakDays > 0
+                    ? "En marcha"
+                    : "Empieza hoy"}
               </Text>
             </View>
           </View>
@@ -248,7 +285,9 @@ export default function HomeScreen() {
                         styles.bar,
                         {
                           height,
-                          backgroundColor: active ? `${LUXURY.neon}30` : LUXURY.charcoal,
+                          backgroundColor: active
+                            ? `${LUXURY.neon}30`
+                            : LUXURY.charcoal,
                         },
                       ]}
                     >
@@ -257,13 +296,19 @@ export default function HomeScreen() {
                           styles.barFill,
                           {
                             height: Math.min(height, missionsFill),
-                            backgroundColor: active ? LUXURY.gold : LUXURY.slate,
+                            backgroundColor: active
+                              ? LUXURY.gold
+                              : LUXURY.slate,
                           },
                         ]}
                       />
                     </View>
                   </View>
-                  <Text style={[styles.barLabel, active && styles.barLabelActive]}>{label}</Text>
+                  <Text
+                    style={[styles.barLabel, active && styles.barLabelActive]}
+                  >
+                    {label}
+                  </Text>
                 </Animated.View>
               );
             })}
@@ -284,9 +329,7 @@ export default function HomeScreen() {
           <View style={styles.rankHeader}>
             <View>
               <Text style={styles.rankEyebrow}>RANGO ACTUAL</Text>
-              <Text style={styles.rankTitle}>
-                {rank.current.title}
-              </Text>
+              <Text style={styles.rankTitle}>{rank.current.title}</Text>
             </View>
             <Text style={styles.xpValue}>{xp} XP</Text>
           </View>
@@ -310,9 +353,24 @@ export default function HomeScreen() {
 
         <View style={styles.quickGrid}>
           {[
-            { label: "Respiración 4·7·8", color: LUXURY.teal, route: "/breathing", icon: "◯" },
-            { label: "Misiones hoy", color: LUXURY.gold, route: "/missions", icon: "✦" },
-            { label: "El Espejo", color: LUXURY.neon, route: "/vault", icon: "⟐" },
+            {
+              label: "Respiración 4·7·8",
+              color: LUXURY.teal,
+              route: "/breathing",
+              icon: "◯",
+            },
+            {
+              label: "Misiones hoy",
+              color: LUXURY.gold,
+              route: "/missions",
+              icon: "✦",
+            },
+            {
+              label: "El Espejo",
+              color: LUXURY.neon,
+              route: "/vault",
+              icon: "⟐",
+            },
           ].map((item, index) => (
             <Animated.View
               key={item.label}
@@ -326,8 +384,15 @@ export default function HomeScreen() {
                 ]}
                 onPress={() => router.push(item.route as any)}
               >
-                <View style={[styles.quickIcon, { backgroundColor: `${item.color}22` }]}>
-                  <Text style={[styles.quickIconText, { color: item.color }]}>{item.icon}</Text>
+                <View
+                  style={[
+                    styles.quickIcon,
+                    { backgroundColor: `${item.color}22` },
+                  ]}
+                >
+                  <Text style={[styles.quickIconText, { color: item.color }]}>
+                    {item.icon}
+                  </Text>
                 </View>
                 <Text style={styles.quickLabel}>{item.label}</Text>
               </Pressable>
@@ -361,7 +426,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textTransform: "uppercase",
   },
-  title: { fontSize: 30, lineHeight: 36, fontWeight: "800", color: LUXURY.snow },
+  title: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: "800",
+    color: LUXURY.snow,
+  },
   avatar: {
     width: 48,
     height: 48,
