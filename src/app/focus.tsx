@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Animated, {
   Easing,
-  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -22,8 +21,6 @@ const PRESETS = [
   { label: "Profundo · 45m", minutes: 45, cycles: 1, color: LUXURY.neon },
   { label: "Maratón · 90m", minutes: 90, cycles: 1, color: LUXURY.violet },
 ];
-
-const CIRC = 2 * Math.PI * 110;
 
 function formatTime(totalSeconds: number) {
   const m = Math.floor(totalSeconds / 60);
@@ -77,7 +74,10 @@ export default function FocusScreen() {
     }, 180);
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
-        const next = Math.min(preset.minutes * 60, (Date.now() - startRef.current) / 1000);
+        const next = Math.min(
+          preset.minutes * 60,
+          (Date.now() - startRef.current) / 1000,
+        );
         if (next >= preset.minutes * 60) {
           stop(true);
           return preset.minutes * 60;
@@ -151,8 +151,11 @@ export default function FocusScreen() {
     router.back();
   };
 
-  const strokeDashoffset = useAnimatedStyle(() => ({
-    strokeDashoffset: CIRC * (1 - progress.value),
+  const ringColor = finished ? LUXURY.emerald : preset.color;
+  const ringTrackStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotateZ: `${progress.value * 360}deg` },
+    ],
   }));
   const pulseStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulse.value }],
@@ -195,7 +198,12 @@ export default function FocusScreen() {
                   onPress={() => setPreset(p)}
                 >
                   <View style={[styles.presetDot, { backgroundColor: p.color }]} />
-                  <Text style={[styles.presetLabel, selected && { color: p.color }]}>
+                  <Text
+                    style={[
+                      styles.presetLabel,
+                      selected && { color: p.color },
+                    ]}
+                  >
                     {p.label}
                   </Text>
                 </Pressable>
@@ -214,10 +222,7 @@ export default function FocusScreen() {
           />
 
           <Pressable
-            style={({ pressed }) => [
-              styles.startButton,
-              pressed && styles.pressed,
-            ]}
+            style={({ pressed }) => [styles.startButton, pressed && styles.pressed]}
             onPress={start}
           >
             <Text style={styles.startText}>ENCENDER EL FOCO →</Text>
@@ -231,33 +236,36 @@ export default function FocusScreen() {
       ) : (
         <View style={styles.timerPanel}>
           <Animated.View style={[styles.ringWrap, scaleStyle]}>
-            <Animated.View style={[styles.ringGlow, pulseStyle]} />
+            <Animated.View
+              style={[
+                styles.ringGlow,
+                pulseStyle,
+                { backgroundColor: `${ringColor}18` },
+              ]}
+            />
             <View style={styles.ring}>
-              <svg viewBox="0 0 260 260" style={styles.ringInner}>
-                <circle
-                  cx="130"
-                  cy="130"
-                  r="110"
-                  stroke={LUXURY.charcoal}
-                  strokeWidth={14}
-                  fill="none"
+              <View style={[styles.ringTrack, { borderColor: LUXURY.charcoal }]} />
+              <Animated.View
+                style={[
+                  styles.ringMask,
+                  ringTrackStyle,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.ringFill,
+                    { borderTopColor: ringColor, borderRightColor: ringColor },
+                  ]}
                 />
-                <AnimatedCircle
-                  cx="130"
-                  cy="130"
-                  r="110"
-                  stroke={finished ? LUXURY.emerald : preset.color}
-                  strokeWidth={14}
-                  strokeLinecap="round"
-                  fill="none"
-                  strokeDasharray={CIRC}
-                  animatedStyle={strokeDashoffset}
-                  rotation={-90}
-                  origin="130,130"
-                />
-              </svg>
+              </Animated.View>
+              <View style={styles.ringInnerGlow} />
               <View style={styles.timeWrap}>
-                <Text style={[styles.time, { color: finished ? LUXURY.emerald : preset.color }]}>
+                <Text
+                  style={[
+                    styles.time,
+                    { color: ringColor },
+                  ]}
+                >
                   {formatTime(Math.max(0, preset.minutes * 60 - elapsed))}
                 </Text>
                 <Text style={styles.timeLabel}>
@@ -300,10 +308,7 @@ export default function FocusScreen() {
 
           <View style={styles.actions}>
             <Pressable
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
               onPress={reset}
             >
               <Text style={styles.secondaryText}>REINICIAR</Text>
@@ -311,12 +316,23 @@ export default function FocusScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.primaryButton,
-                { backgroundColor: finished ? LUXURY.emerald : paused ? preset.color : LUXURY.graphite },
+                {
+                  backgroundColor: finished
+                    ? LUXURY.emerald
+                    : paused
+                      ? preset.color
+                      : LUXURY.graphite,
+                },
                 pressed && styles.pressed,
               ]}
               onPress={finished ? saveAndClose : pauseResume}
             >
-              <Text style={[styles.primaryText, !finished && !paused && { color: preset.color }]}>
+              <Text
+                style={[
+                  styles.primaryText,
+                  !finished && !paused && { color: preset.color },
+                ]}
+              >
                 {finished ? "SELLAR SESIÓN →" : paused ? "REANUDAR" : "PAUSAR"}
               </Text>
             </Pressable>
@@ -324,42 +340,6 @@ export default function FocusScreen() {
         </View>
       )}
     </View>
-  );
-}
-
-function AnimatedCircle({
-  animatedStyle,
-  rotation,
-  origin,
-  ...rest
-}: {
-  cx: string | number;
-  cy: string | number;
-  r: string | number;
-  stroke: string;
-  strokeWidth: string | number;
-  strokeLinecap: string;
-  fill: string;
-  strokeDasharray: number;
-  animatedStyle: ReturnType<typeof useAnimatedStyle>;
-  rotation?: number;
-  origin?: string;
-}) {
-  const props = useAnimatedProps(() => ({
-    strokeDashoffset: animatedStyle.value.strokeDashoffset,
-  }));
-  return (
-    // @ts-expect-error svg animated props
-    <Animated.circle
-      {...rest}
-      animatedProps={props}
-      style={{
-        transform: [
-          { rotate: `${rotation ?? 0}deg` },
-        ],
-        transformOrigin: origin ?? "center",
-      }}
-    />
   );
 }
 
@@ -387,11 +367,7 @@ const styles = StyleSheet.create({
   },
   closeChipText: { color: LUXURY.pearl, fontSize: 13, fontWeight: "700" },
   placeholder: { width: 68 },
-  panel: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 6,
-  },
+  panel: { flex: 1, paddingHorizontal: 20, paddingTop: 6 },
   sectionLabel: {
     color: LUXURY.ash,
     fontSize: 11,
@@ -466,32 +442,55 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 20,
   },
-  ringWrap: { alignItems: "center" },
+  ringWrap: { alignItems: "center", width: 280, height: 280, justifyContent: "center" },
   ringGlow: {
     position: "absolute",
-    width: 270,
-    height: 270,
-    borderRadius: 135,
-    backgroundColor: `${LUXURY.gold}10`,
-    alignSelf: "center",
-    top: 0,
+    width: 290,
+    height: 290,
+    borderRadius: 145,
   },
   ring: {
     width: 260,
     height: 260,
+    borderRadius: 130,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
   },
-  ringInner: {
+  ringTrack: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    width: 260,
-    height: 260,
+    width: "100%",
+    height: "100%",
+    borderRadius: 130,
+    borderWidth: 14,
   },
-  timeWrap: { alignItems: "center" },
+  ringMask: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    borderRadius: 130,
+  },
+  ringFill: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    borderRadius: 130,
+    borderWidth: 14,
+    borderLeftColor: "transparent",
+    borderBottomColor: "transparent",
+  },
+  ringInnerGlow: {
+    position: "absolute",
+    width: 208,
+    height: 208,
+    borderRadius: 104,
+    backgroundColor: LUXURY.obsidian,
+    borderWidth: 1,
+    borderColor: `${LUXURY.charcoal}`,
+  },
+  timeWrap: { alignItems: "center", zIndex: 3 },
   time: {
-    fontSize: 62,
+    fontSize: 58,
     fontWeight: "900",
     letterSpacing: 2,
   },
