@@ -3,167 +3,121 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
-    FadeInDown,
-    FadeInRight,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming,
+  Easing,
+  FadeInDown,
+  FadeInRight,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { LUXURY, SHADOWS } from "@/constants/theme";
 import {
-    getAchievements,
-    getTotalXp,
-    getTrainingStreakWeeks,
-    getWeekStart,
-    getWeeklySummary,
-    readTrainingLogs,
-} from "@/lib/fitness-storage";
-
-const COLORS = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  ink: "#111113",
-  secondary: "#777782",
-  blue: "#007AFF",
-  green: "#34C759",
-  orange: "#FF9500",
-  purple: "#AF52DE",
-  line: "#E6E6EB",
-};
+  DEFAULT_MISSIONS,
+  getRank,
+  getStreakDays,
+  getTotalXp,
+  getWeeklySummary,
+  randomStoicQuote,
+  readAllProgress,
+  readSessions,
+  type WarriorProfile,
+} from "@/lib/forge-storage";
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [profileName, setProfileName] = useState("tu progreso");
-  const [todayPlanRoutine, setTodayPlanRoutine] = useState("");
-  const [todayRoutineId, setTodayRoutineId] = useState<string | null>(null);
-  const [todayRoutineCompleted, setTodayRoutineCompleted] = useState(false);
-  const [todayCompletedExercises, setTodayCompletedExercises] = useState(0);
-  const [todayTotalExercises, setTodayTotalExercises] = useState(0);
-  const [summary, setSummary] = useState(() => getWeeklySummary([]));
-  const [streakWeeks, setStreakWeeks] = useState(0);
+  const [profile, setProfile] = useState<WarriorProfile | null>(null);
+  const [streakDays, setStreakDays] = useState(0);
   const [xp, setXp] = useState(0);
-  const [achievements, setAchievements] = useState<
-    ReturnType<typeof getAchievements>
-  >([]);
-  const [muscleVolumes, setMuscleVolumes] = useState<Record<string, number>>(
-    {},
-  );
+  const [weekly, setWeekly] = useState<Awaited<ReturnType<typeof getWeeklySummary>>>({
+    days: [],
+    totalFocus: 0,
+    totalMissionsWeek: 0,
+    activeDays: 0,
+  });
+  const [todayMissions, setTodayMissions] = useState({ completed: 0, total: DEFAULT_MISSIONS.length });
+  const [todayFocus, setTodayFocus] = useState(0);
+  const [quote, setQuote] = useState("");
   const progress = useSharedValue(0);
+  const streakGlow = useSharedValue(1);
+  const pulse = useSharedValue(1);
 
-  const loadRoutineData = () =>
+  const rank = getRank(xp);
+
+  const load = () =>
     Promise.all([
-      AsyncStorage.getItem("pulse-profile"),
-      AsyncStorage.getItem("pulse-plan"),
-      AsyncStorage.getItem("pulse-routines"),
-      readTrainingLogs(),
-    ]).then(([profile, storedPlan, storedRoutines, logs]) => {
-      if (profile) setProfileName(JSON.parse(profile).name);
-      if (storedPlan && storedRoutines) {
-        const plan = JSON.parse(storedPlan) as Record<string, string>;
-        const routines = JSON.parse(storedRoutines) as Array<{
-          id: string;
-          name: string;
-        }>;
-        const assigned = routines.find(
-          (item) => item.id === plan[String(new Date().getDay())],
-        );
-        setTodayPlanRoutine(assigned?.name ?? "");
-        setTodayRoutineId(assigned?.id ?? null);
-        if (assigned) {
-          const completedLog = logs.some((log) => {
-            const isSameDay =
-              new Date(log.date).toLocaleDateString("es-ES") ===
-              new Date().toLocaleDateString("es-ES");
-            const isSameRoutine = log.routineId
-              ? log.routineId === assigned.id
-              : log.routineName === assigned.name;
-            return isSameDay && isSameRoutine;
-          });
-          AsyncStorage.getItem(`pulse-workout-progress:${assigned.id}`).then(
-            (saved) => {
-              let completed = 0;
-              let total = 0;
-              if (saved) {
-                try {
-                  const progress = JSON.parse(saved) as {
-                    items?: Array<{ done?: boolean }>;
-                  };
-                  total = progress.items?.length ?? 0;
-                  completed =
-                    progress.items?.filter((item) => item.done).length ?? 0;
-                } catch {
-                  total = 0;
-                }
-              }
-              setTodayCompletedExercises(completed);
-              setTodayTotalExercises(total);
-              setTodayRoutineCompleted(
-                completedLog || (total > 0 && completed === total),
-              );
-            },
-          );
-        } else {
-          setTodayCompletedExercises(0);
-          setTodayTotalExercises(0);
-          setTodayRoutineCompleted(false);
-        }
-      } else {
-        setTodayPlanRoutine("");
-        setTodayRoutineId(null);
-        setTodayCompletedExercises(0);
-        setTodayTotalExercises(0);
-        setTodayRoutineCompleted(false);
-      }
-      setSummary(getWeeklySummary(logs));
-      setStreakWeeks(getTrainingStreakWeeks(logs));
-      setXp(getTotalXp(logs));
-      setAchievements(getAchievements(logs));
-      setMuscleVolumes(
-        logs
-          .filter((log) => new Date(log.date) >= getWeekStart())
-          .reduce<Record<string, number>>((volumes, log) => {
-            Object.entries(log.muscleVolumes ?? {}).forEach(
-              ([muscle, value]) => {
-                volumes[muscle] = (volumes[muscle] || 0) + value;
-              },
-            );
-            return volumes;
-          }, {}),
+      AsyncStorage.getItem("vertice-profile"),
+      readAllProgress(),
+      readSessions(),
+      getTotalXp(),
+      getWeeklySummary(),
+    ]).then(async ([profileRaw, progressByDay, sessions, totalXp, weeklySum]) => {
+      if (profileRaw) setProfile(JSON.parse(profileRaw));
+      const streak = getStreakDays(progressByDay);
+      setStreakDays(streak);
+      setXp(totalXp);
+      setWeekly(weeklySum);
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const todayProgress = progressByDay[todayKey];
+      setTodayMissions({
+        completed: todayProgress?.completedIds.length ?? 0,
+        total: todayProgress?.missionIds.length ?? DEFAULT_MISSIONS.length,
+      });
+      setTodayFocus(
+        sessions
+          .filter((s) => new Date(s.date).toISOString().slice(0, 10) === todayKey)
+          .reduce((t, s) => t + s.minutes, 0),
       );
+      setQuote(randomStoicQuote(profileRaw ? JSON.parse(profileRaw).name : undefined));
     });
+
   useFocusEffect(() => {
-    loadRoutineData();
+    load();
   });
 
   useEffect(() => {
-    const workoutProgress = todayTotalExercises
-      ? todayCompletedExercises / todayTotalExercises
-      : summary.sets > 0
-        ? 1
-        : 0;
-    progress.value = withTiming(workoutProgress, { duration: 600 });
-  }, [summary.sets, todayCompletedExercises, todayTotalExercises, progress]);
+    const target = todayMissions.total
+      ? todayMissions.completed / todayMissions.total
+      : 0;
+    progress.value = withTiming(target, { duration: 900, easing: Easing.out(Easing.cubic) });
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1.04, { duration: 1400 }),
+        withTiming(1, { duration: 1400 }),
+      ),
+      -1,
+      true,
+    );
+    streakGlow.value = withSpring(streakDays > 0 ? 1.1 : 1, { damping: 10 });
+  }, [todayMissions.completed, todayMissions.total, streakDays]);
+
   const progressStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
   }));
-  const openTodayWorkout = () => {
-    if (todayRoutineId) {
-      router.push(
-        `/workout?routineId=${encodeURIComponent(todayRoutineId)}` as `/workout?${string}`,
-      );
-      return;
-    }
-    router.push("/workout");
-  };
+  const xpStyle = useAnimatedStyle(() => ({
+    width: `${Math.min(100, rank.progress * 100)}%`,
+  }));
+  const streakGlowStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: streakGlow.value }],
+  }));
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
+
+  const weekdayLabels = ["L", "M", "X", "J", "V", "S", "D"];
+  const maxFocus = Math.max(60, ...(weekly.days.map((d) => d.focusMinutes)), 1);
 
   return (
     <View style={styles.root}>
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 110 },
+          { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 110 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -181,230 +135,204 @@ export default function HomeScreen() {
                 .format(new Date())
                 .toUpperCase()}
             </Text>
-            <Text style={styles.title}>Hola, {profileName}</Text>
+            <Text style={styles.title}>
+              {profile ? `Forjando a ${profile.name}` : "Bienvenido a VÉRTICE"}
+            </Text>
           </View>
-          <Pressable
-            style={styles.avatar}
-            onPress={() => router.push("/explore")}
-          >
-            <Text style={styles.avatarText}>AR</Text>
-          </Pressable>
+          <Animated.View style={[styles.avatar, pulseStyle]}>
+            <Text style={styles.avatarText}>{rank.current.icon}</Text>
+          </Animated.View>
         </Animated.View>
 
         <Animated.View
-          entering={FadeInDown.delay(100).duration(500)}
-          style={styles.heroCard}
+          entering={FadeInDown.delay(80).duration(550)}
+          style={[styles.mantraCard]}
         >
-          <View style={styles.heroTopline}>
-            <View style={styles.livePill}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>HOY</Text>
+          <Text style={styles.mantraLabel}>MANTRÁ DEL DÍA</Text>
+          <Text style={styles.mantraText}>
+            {profile?.mantra ?? "Cada minuto cuenta, cada acción forja."}
+          </Text>
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeInDown.delay(140).duration(600)}
+          style={[styles.forgeCard, SHADOWS.card]}
+        >
+          <View style={styles.forgeTopline}>
+            <Animated.View style={[streakGlowStyle, styles.streakBadge]}>
+              <Text style={styles.streakFlame}>🔥</Text>
+              <Text style={styles.streakText}>{streakDays} DÍAS</Text>
+            </Animated.View>
+            <View style={styles.rankChip}>
+              <Text style={styles.rankIcon}>{rank.current.icon}</Text>
+              <Text style={styles.rankLabel}>{rank.current.title}</Text>
             </View>
-            <Text style={styles.heroMeta}>
-              {todayPlanRoutine
-                ? "ENTRENAMIENTO PROGRAMADO"
-                : "DESCANSO PROGRAMADO"}
-            </Text>
           </View>
-          <Text style={styles.heroTitle}>
-            {todayPlanRoutine || "Día de descanso"}
+          <Text style={styles.forgeTitle}>La Forja está encendida</Text>
+          <Text style={styles.forgeSubtitle}>
+            {todayMissions.completed >= todayMissions.total
+              ? "Racha asegurada. Ahora da un paso más por ti mismo."
+              : todayFocus >= 45
+                ? "La mente ya está caliente. Completa tus misiones."
+                : "La disciplina no se negocia. Empieza el enfoque profundo."}
           </Text>
-          <Text style={styles.heroSubtitle}>
-            {todayPlanRoutine
-              ? todayTotalExercises
-                ? `${todayCompletedExercises} de ${todayTotalExercises} ejercicios completados`
-                : `${todayPlanRoutine} · ${summary.sets} series esta semana`
-              : "Tu plan no tiene rutina para hoy"}
-          </Text>
+          <View style={styles.focusRow}>
+            <View style={styles.focusStat}>
+              <Text style={styles.focusValue}>{todayFocus}</Text>
+              <Text style={styles.focusUnit}>min de enfoque</Text>
+            </View>
+            <View style={styles.focusDivider} />
+            <View style={styles.focusStat}>
+              <Text style={styles.focusValue}>
+                {todayMissions.completed}/{todayMissions.total}
+              </Text>
+              <Text style={styles.focusUnit}>misiones</Text>
+            </View>
+            <View style={styles.focusDivider} />
+            <View style={styles.focusStat}>
+              <Text style={styles.focusValue}>{xp}</Text>
+              <Text style={styles.focusUnit}>XP acumulada</Text>
+            </View>
+          </View>
           <View style={styles.progressTrack}>
             <Animated.View style={[styles.progressFill, progressStyle]} />
           </View>
           <Pressable
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.pressed,
-            ]}
-            onPress={() =>
-              todayPlanRoutine ? openTodayWorkout() : router.push("/plans")
-            }
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            onPress={() => router.push("/focus")}
           >
-            <Text style={styles.primaryButtonText}>
-              {todayPlanRoutine
-                ? todayRoutineCompleted
-                  ? "Repetir rutina"
-                  : "Comenzar entrenamiento"
-                : "Ver mi plan"}
-            </Text>
-            <Text style={styles.buttonArrow}>-&gt;</Text>
+            <Text style={styles.primaryButtonText}>EMPEZAR ENFOQUE PROFUNDO</Text>
+            <Text style={styles.buttonArrow}>→</Text>
           </Pressable>
         </Animated.View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Tu resumen</Text>
-          <Text style={styles.sectionLink}>Esta semana</Text>
-        </View>
-        <View style={styles.metricsGrid}>
-          {[
-            {
-              label: "Volumen",
-              value: summary.volume.toLocaleString("es-ES"),
-              unit: "kg",
-              color: COLORS.blue,
-            },
-            {
-              label: "Series",
-              value: String(summary.sets),
-              unit: "completadas",
-              color: COLORS.green,
-            },
-            {
-              label: "Tiempo",
-              value: String(summary.minutes),
-              unit: "minutos",
-              color: COLORS.orange,
-            },
-          ].map((metric, index) => (
-            <Animated.View
-              key={metric.label}
-              entering={FadeInRight.delay(150 + index * 80).duration(450)}
-              style={styles.metricCard}
-            >
-              <View
-                style={[
-                  styles.metricIcon,
-                  { backgroundColor: `${metric.color}18` },
-                ]}
-              >
-                <View
-                  style={[styles.metricDot, { backgroundColor: metric.color }]}
-                />
-              </View>
-              <Text
-                style={[
-                  styles.metricValue,
-                  metric.value === "0" && styles.metricValueEmpty,
-                ]}
-              >
-                {metric.value}
-                <Text style={styles.metricUnit}> {metric.unit}</Text>
-              </Text>
-              <Text style={styles.metricLabel}>{metric.label}</Text>
-            </Animated.View>
-          ))}
+          <Text style={styles.sectionTitle}>Consistencia semanal</Text>
+          <Pressable onPress={() => router.push("/missions")}>
+            <Text style={styles.sectionLink}>Ver misiones</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Consistencia</Text>
-          <Text style={styles.sectionLink}>Ver analiticas</Text>
-        </View>
-        <View style={styles.chartCard}>
+        <Animated.View
+          entering={FadeInRight.delay(220).duration(500)}
+          style={[styles.chartCard]}
+        >
           <View style={styles.chartSummary}>
-            <Text style={styles.chartValue}>{summary.activeDays} de 7</Text>
-            <Text style={styles.chartHint}>dias activos</Text>
-            <View style={styles.streakPill}>
-              <Text style={styles.streakText}>
-                {summary.activeDays ? "En marcha" : "Empieza hoy"}
+            <Text style={styles.chartValue}>{weekly.activeDays} · 7</Text>
+            <Text style={styles.chartHint}>días activos · {weekly.totalFocus} min</Text>
+            <View style={[styles.streakPill, streakDays > 2 && styles.streakPillHot]}>
+              <Text style={[styles.streakPillText, streakDays > 2 && styles.streakPillTextHot]}>
+                {streakDays > 2 ? `${streakDays} días racha` : streakDays > 0 ? "En marcha" : "Empieza hoy"}
               </Text>
             </View>
           </View>
           <View style={styles.chartBars}>
-            {["L", "M", "X", "J", "V", "S", "D"].map((day, index) => (
-              <View key={day} style={styles.barColumn}>
-                <View
-                  style={[
-                    styles.bar,
-                    {
-                      height: summary.days[index] ? 54 : 10,
-                      backgroundColor: summary.days[index]
-                        ? COLORS.green
-                        : "#D8E8FA",
-                    },
-                  ]}
-                />
-                <Text style={styles.barLabel}>{day}</Text>
-              </View>
-            ))}
+            {weekdayLabels.map((label, index) => {
+              const day = weekly.days[index];
+              const height = day
+                ? Math.max(12, (day.focusMinutes / maxFocus) * 86)
+                : 10;
+              const active = day?.active;
+              const missionsFill = day?.missionsTotal
+                ? (day.missionsCompleted / day.missionsTotal) * height
+                : 0;
+              return (
+                <Animated.View
+                  key={label}
+                  entering={FadeInDown.delay(260 + index * 70).duration(450)}
+                  style={styles.barColumn}
+                >
+                  <View style={styles.barStack}>
+                    <View
+                      style={[
+                        styles.bar,
+                        {
+                          height,
+                          backgroundColor: active ? `${LUXURY.neon}30` : LUXURY.charcoal,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.barFill,
+                          {
+                            height: Math.min(height, missionsFill),
+                            backgroundColor: active ? LUXURY.gold : LUXURY.slate,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                  <Text style={[styles.barLabel, active && styles.barLabelActive]}>{label}</Text>
+                </Animated.View>
+              );
+            })}
           </View>
+        </Animated.View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Progreso de rango</Text>
+          <Text style={styles.sectionLink}>
+            Siguiente · {rank.next ? rank.next.title : "Cima alcanzada"}
+          </Text>
         </View>
-        <View style={styles.gamificationCard}>
-          <View style={styles.gamificationTopline}>
+
+        <Animated.View
+          entering={FadeInDown.delay(340).duration(500)}
+          style={[styles.rankCard]}
+        >
+          <View style={styles.rankHeader}>
             <View>
-              <Text style={styles.gamificationEyebrow}>PROGRESO</Text>
-              <Text style={styles.gamificationTitle}>
-                Nivel {Math.floor(xp / 250) + 1}
+              <Text style={styles.rankEyebrow}>RANGO ACTUAL</Text>
+              <Text style={styles.rankTitle}>
+                {rank.current.title}
               </Text>
             </View>
             <Text style={styles.xpValue}>{xp} XP</Text>
           </View>
           <View style={styles.xpTrack}>
-            <View
-              style={[
-                styles.xpFill,
-                { width: `${Math.min(100, (xp % 250) / 2.5)}%` },
-              ]}
-            />
+            <Animated.View style={[styles.xpFill, xpStyle]} />
           </View>
-          <View style={styles.streakRow}>
-            <Text style={styles.streakHeadline}>
-              Racha: {streakWeeks} {streakWeeks === 1 ? "semana" : "semanas"}
-            </Text>
-            <Text style={styles.badgeCount}>
-              {achievements.filter((item) => item.unlocked).length}/
-              {achievements.length} logros
-            </Text>
-          </View>
-        </View>
-        <View style={styles.progressionCard}>
-          <Text style={styles.sectionTitle}>Sobrecarga semanal</Text>
-          <Text style={styles.progressionHint}>
-            Volumen acumulado por músculo
+          <Text style={styles.rankHint}>
+            {rank.next
+              ? `${xp - rank.current.xp} / ${rank.next.xp - rank.current.xp} XP hacia ${rank.next.title}`
+              : "Has alcanzado la cima. Mantente ahí."}
           </Text>
-          {Object.keys(muscleVolumes).length ? (
-            Object.entries(muscleVolumes)
-              .sort(([, left], [, right]) => right - left)
-              .slice(0, 6)
-              .map(([muscle, volume]) => (
-                <View key={muscle} style={styles.muscleRow}>
-                  <Text style={styles.muscleName}>{muscle}</Text>
-                  <View style={styles.muscleTrack}>
-                    <View
-                      style={[
-                        styles.muscleFill,
-                        {
-                          width: `${Math.max(6, (volume / Math.max(...Object.values(muscleVolumes))) * 100)}%`,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.muscleValue}>
-                    {Math.round(volume)} kg
-                  </Text>
-                </View>
-              ))
-          ) : (
-            <Text style={styles.progressionHint}>
-              Completa una sesión para ver tu mapa muscular.
-            </Text>
-          )}
-        </View>
-        <View style={styles.achievementsCard}>
-          <Text style={styles.sectionTitle}>Medallas</Text>
-          <View style={styles.badgeGrid}>
-            {achievements.map((achievement) => (
-              <View
-                key={achievement.id}
-                style={[
-                  styles.badge,
-                  !achievement.unlocked && styles.badgeLocked,
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeInDown.delay(420).duration(550)}
+          style={[styles.stoicCard]}
+        >
+          <Text style={styles.stoicEyebrow}>FRASE ESTOICA</Text>
+          <Text style={styles.stoicQuote}>{quote}</Text>
+        </Animated.View>
+
+        <View style={styles.quickGrid}>
+          {[
+            { label: "Respiración 4·7·8", color: LUXURY.teal, route: "/breathing", icon: "◯" },
+            { label: "Misiones hoy", color: LUXURY.gold, route: "/missions", icon: "✦" },
+            { label: "El Espejo", color: LUXURY.neon, route: "/vault", icon: "⟐" },
+          ].map((item, index) => (
+            <Animated.View
+              key={item.label}
+              entering={FadeInRight.delay(480 + index * 80).duration(450)}
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickCard,
+                  { borderColor: `${item.color}44` },
+                  pressed && styles.pressed,
                 ]}
+                onPress={() => router.push(item.route as any)}
               >
-                <Text style={styles.badgeIcon}>
-                  {achievement.unlocked ? "★" : "·"}
-                </Text>
-                <Text style={styles.badgeTitle}>{achievement.title}</Text>
-              </View>
-            ))}
-          </View>
+                <View style={[styles.quickIcon, { backgroundColor: `${item.color}22` }]}>
+                  <Text style={[styles.quickIconText, { color: item.color }]}>{item.icon}</Text>
+                </View>
+                <Text style={styles.quickLabel}>{item.label}</Text>
+              </Pressable>
+            </Animated.View>
+          ))}
         </View>
       </ScrollView>
     </View>
@@ -412,7 +340,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.background },
+  root: { flex: 1, backgroundColor: LUXURY.ink },
   content: {
     paddingHorizontal: 20,
     maxWidth: 800,
@@ -423,406 +351,340 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 22,
+    marginBottom: 18,
   },
   eyebrow: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 1.2,
-    color: COLORS.secondary,
-    marginBottom: 5,
+    letterSpacing: 1.4,
+    color: LUXURY.ash,
+    marginBottom: 6,
+    textTransform: "uppercase",
   },
-  title: { fontSize: 30, lineHeight: 36, fontWeight: "700", color: COLORS.ink },
+  title: { fontSize: 30, lineHeight: 36, fontWeight: "800", color: LUXURY.snow },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.ink,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: LUXURY.graphite,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: `${LUXURY.gold}44`,
   },
-  avatarText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  heroCard: {
-    backgroundColor: COLORS.ink,
-    borderRadius: 24,
-    padding: 22,
-    marginBottom: 26,
-    shadowColor: "#000",
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
+  avatarText: { color: LUXURY.goldSoft, fontSize: 18 },
+  mantraCard: {
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 22,
+    borderWidth: 1,
+    borderColor: `${LUXURY.gold}1A`,
   },
-  heroTopline: {
+  mantraLabel: {
+    color: LUXURY.gold,
+    fontSize: 10,
+    letterSpacing: 2,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  mantraText: {
+    color: LUXURY.snow,
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "600",
+  },
+  forgeCard: {
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 28,
+    borderWidth: 1,
+    borderColor: `${LUXURY.gold}22`,
+  },
+  forgeTopline: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: 18,
   },
-  livePill: {
+  streakBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    backgroundColor: "#2B2B30",
+    gap: 8,
+    backgroundColor: LUXURY.charcoal,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: `${LUXURY.blood}44`,
+  },
+  streakFlame: { fontSize: 12 },
+  streakText: {
+    color: LUXURY.goldSoft,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  rankChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: `${LUXURY.neon}18`,
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: `${LUXURY.neon}30`,
   },
-  liveDot: {
-    width: 7,
-    height: 7,
-    backgroundColor: COLORS.green,
-    borderRadius: 4,
+  rankIcon: { color: LUXURY.neonSoft, fontSize: 14 },
+  rankLabel: { color: LUXURY.neonSoft, fontSize: 11, fontWeight: "700" },
+  forgeTitle: {
+    color: LUXURY.snow,
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
   },
-  liveText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1,
+  forgeSubtitle: {
+    color: LUXURY.mist,
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  heroMeta: { color: "#A5A5AE", fontSize: 12 },
-  heroTitle: { color: "#fff", fontSize: 28, fontWeight: "700", marginTop: 20 },
-  heroSubtitle: { color: "#A5A5AE", marginTop: 5, fontSize: 13 },
+  focusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 22,
+    marginBottom: 18,
+  },
+  focusStat: { flex: 1, alignItems: "center" },
+  focusValue: {
+    color: LUXURY.snow,
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  focusUnit: {
+    color: LUXURY.ash,
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+  },
+  focusDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: LUXURY.charcoal,
+  },
   progressTrack: {
     height: 6,
-    backgroundColor: "#36363D",
+    backgroundColor: LUXURY.charcoal,
     borderRadius: 4,
-    marginTop: 20,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    backgroundColor: COLORS.green,
+    backgroundColor: LUXURY.gold,
     borderRadius: 4,
   },
   primaryButton: {
-    backgroundColor: COLORS.blue,
-    borderRadius: 14,
-    minHeight: 48,
-    paddingHorizontal: 16,
-    marginTop: 20,
+    backgroundColor: LUXURY.gold,
+    borderRadius: 16,
+    minHeight: 52,
+    paddingHorizontal: 18,
+    marginTop: 22,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  primaryButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  buttonArrow: { color: "#fff", fontSize: 18 },
-  pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
+  primaryButtonText: {
+    color: LUXURY.ink,
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  buttonArrow: { color: LUXURY.ink, fontSize: 18, fontWeight: "800" },
+  pressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 14,
     marginTop: 2,
   },
-  sectionTitle: { fontSize: 20, fontWeight: "700", color: COLORS.ink },
-  sectionLink: { fontSize: 13, fontWeight: "600", color: COLORS.blue },
-  metricsGrid: { flexDirection: "row", gap: 10, marginBottom: 26 },
-  metricCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 18,
-    padding: 14,
-    flex: 1,
-    minHeight: 124,
-    justifyContent: "space-between",
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: LUXURY.snow,
+    letterSpacing: 0.3,
   },
-  metricIcon: {
-    height: 30,
-    width: 30,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
+  sectionLink: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: LUXURY.gold,
+    letterSpacing: 0.5,
   },
-  metricDot: { width: 9, height: 9, borderRadius: 5 },
-  metricValue: { fontSize: 21, fontWeight: "700", color: COLORS.ink },
-  metricValueEmpty: { color: "#50505A" },
-  metricUnit: { fontSize: 11, fontWeight: "600", color: "#5E5E68" },
-  metricLabel: { fontSize: 12, color: "#5E5E68", fontWeight: "600" },
   chartCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 26,
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 22,
+    padding: 20,
+    marginBottom: 28,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
   },
-  chartSummary: { flexDirection: "row", alignItems: "baseline", gap: 8 },
-  chartValue: { fontSize: 25, fontWeight: "700", color: COLORS.ink },
-  chartHint: { fontSize: 13, color: COLORS.secondary },
+  chartSummary: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    marginBottom: 16,
+  },
+  chartValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: LUXURY.snow,
+    letterSpacing: 0.5,
+  },
+  chartHint: { fontSize: 13, color: LUXURY.mist },
   streakPill: {
-    backgroundColor: "#EAF8EE",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    backgroundColor: LUXURY.charcoal,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     marginLeft: "auto",
   },
-  streakText: { color: "#248A3D", fontSize: 11, fontWeight: "700" },
-  gamificationCard: {
-    backgroundColor: COLORS.ink,
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 18,
+  streakPillHot: {
+    backgroundColor: `${LUXURY.gold}22`,
+    borderWidth: 1,
+    borderColor: `${LUXURY.gold}44`,
   },
-  gamificationTopline: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  gamificationEyebrow: {
-    color: COLORS.green,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-  gamificationTitle: {
-    color: "#fff",
-    fontSize: 24,
-    fontWeight: "800",
-    marginTop: 4,
-  },
-  xpValue: { color: "#fff", fontSize: 16, fontWeight: "800" },
-  xpTrack: {
-    height: 7,
-    backgroundColor: "#36363D",
-    borderRadius: 4,
-    overflow: "hidden",
-    marginTop: 16,
-  },
-  xpFill: { height: "100%", backgroundColor: COLORS.green, borderRadius: 4 },
-  streakRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 14,
-  },
-  streakHeadline: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  badgeCount: { color: "#A5A5AE", fontSize: 12 },
-  progressionCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 18,
-  },
-  progressionHint: {
-    color: COLORS.secondary,
-    fontSize: 12,
-    marginTop: 4,
-    marginBottom: 14,
-  },
-  muscleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 11,
-  },
-  muscleName: { width: 62, color: COLORS.ink, fontSize: 11, fontWeight: "700" },
-  muscleTrack: {
-    flex: 1,
-    height: 9,
-    backgroundColor: "#E5E5EA",
-    borderRadius: 5,
-    overflow: "hidden",
-  },
-  muscleFill: { height: "100%", backgroundColor: COLORS.blue, borderRadius: 5 },
-  muscleValue: {
-    width: 55,
-    color: COLORS.secondary,
-    fontSize: 10,
-    textAlign: "right",
-  },
-  achievementsCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 26,
-  },
-  badgeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
-  badge: {
-    width: "48%",
-    minHeight: 62,
-    backgroundColor: "#EAF8EE",
-    borderRadius: 13,
-    padding: 10,
-  },
-  badgeLocked: { backgroundColor: "#F2F2F7", opacity: 0.65 },
-  badgeIcon: { color: "#D89000", fontSize: 18, fontWeight: "800" },
-  badgeTitle: {
-    color: COLORS.ink,
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 4,
-  },
+  streakPillText: { color: LUXURY.mist, fontSize: 11, fontWeight: "700" },
+  streakPillTextHot: { color: LUXURY.goldSoft },
   chartBars: {
-    height: 112,
+    height: 120,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
     paddingTop: 20,
+    gap: 4,
   },
   barColumn: {
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8,
     flex: 1,
   },
-  bar: { width: 18, borderRadius: 8 },
-  barLabel: { color: COLORS.secondary, fontSize: 11 },
-  routineCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 18,
-    padding: 15,
-    flexDirection: "row",
+  barStack: {
+    height: 86,
     alignItems: "center",
-    marginBottom: 10,
-  },
-  routineIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-    backgroundColor: "#F1EAFE",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  routineIconText: { color: COLORS.purple, fontWeight: "800", fontSize: 13 },
-  routineIconCompleted: { backgroundColor: "#EAF8EE" },
-  repeatButton: {
-    alignSelf: "flex-start",
-    backgroundColor: "#E8F2FF",
-    borderRadius: 10,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    marginTop: 10,
-  },
-  repeatButtonText: { color: COLORS.blue, fontSize: 12, fontWeight: "700" },
-  routineCopy: { flex: 1, marginLeft: 13 },
-  routineTitle: { fontSize: 16, fontWeight: "700", color: COLORS.ink },
-  routineDetail: { marginTop: 4, fontSize: 12, color: COLORS.secondary },
-  emptyCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 10,
-  },
-  emptyTitle: { color: COLORS.ink, fontSize: 16, fontWeight: "700" },
-  emptyDetail: { color: COLORS.secondary, fontSize: 13, marginTop: 5 },
-  chevron: { color: "#B8B8C0", fontSize: 27, fontWeight: "300" },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
     justifyContent: "flex-end",
   },
-  sheet: {
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 22,
-    paddingBottom: 42,
+  bar: {
+    width: 22,
+    borderRadius: 12,
+    overflow: "hidden",
+    justifyContent: "flex-end",
   },
-  sheetSmall: {
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 22,
-    paddingBottom: 34,
+  barFill: {
+    width: "100%",
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
   },
-  sheetHandle: {
-    alignSelf: "center",
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#C5C5CC",
-    marginBottom: 22,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  sheetEyebrow: {
-    color: COLORS.secondary,
+  barLabel: {
+    color: LUXURY.ash,
     fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    marginTop: 8,
+    fontWeight: "600",
   },
-  sheetTitle: {
-    color: COLORS.ink,
-    fontSize: 27,
-    fontWeight: "700",
-    marginTop: 5,
+  barLabelActive: { color: LUXURY.goldSoft, fontWeight: "700" },
+  rankCard: {
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 22,
+    padding: 20,
     marginBottom: 22,
+    borderWidth: 1,
+    borderColor: `${LUXURY.neon}22`,
   },
-  closeButton: { color: COLORS.blue, fontSize: 14, fontWeight: "600" },
-  sheetSubtitle: {
-    color: COLORS.ink,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 10,
-  },
-  setRow: {
-    minHeight: 58,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.line,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-  },
-  checkbox: {
-    width: 25,
-    height: 25,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: "#C9C9D0",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  checkboxDone: { backgroundColor: COLORS.green, borderColor: COLORS.green },
-  check: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  setText: { color: COLORS.ink, fontSize: 14, fontWeight: "600", flex: 1 },
-  setTextDone: { color: COLORS.secondary, textDecorationLine: "line-through" },
-  setValue: { color: COLORS.secondary, fontSize: 13 },
-  restBox: {
-    backgroundColor: "#FFF4E5",
-    borderRadius: 16,
-    padding: 16,
+  rankHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 16,
   },
-  restLabel: {
-    color: "#A66100",
+  rankEyebrow: {
+    color: LUXURY.neonSoft,
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.7,
+    letterSpacing: 1.2,
   },
-  restTime: {
-    color: COLORS.ink,
+  rankTitle: {
+    color: LUXURY.snow,
     fontSize: 24,
-    fontWeight: "700",
+    fontWeight: "800",
     marginTop: 4,
   },
-  restAction: { color: "#A66100", fontWeight: "700", fontSize: 14 },
-  finishButton: {
-    minHeight: 52,
-    backgroundColor: COLORS.green,
-    borderRadius: 15,
+  xpValue: { color: LUXURY.snow, fontSize: 16, fontWeight: "800" },
+  xpTrack: {
+    height: 7,
+    backgroundColor: LUXURY.charcoal,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginTop: 18,
+  },
+  xpFill: {
+    height: "100%",
+    backgroundColor: LUXURY.neon,
+    borderRadius: 4,
+  },
+  rankHint: {
+    color: LUXURY.mist,
+    fontSize: 12,
+    marginTop: 12,
+    fontWeight: "600",
+  },
+  stoicCard: {
+    backgroundColor: LUXURY.obsidian,
+    borderRadius: 22,
+    padding: 22,
+    marginBottom: 22,
+    borderWidth: 1,
+    borderColor: `${LUXURY.violet}22`,
+  },
+  stoicEyebrow: {
+    color: LUXURY.violet,
+    fontSize: 10,
+    letterSpacing: 2,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+  stoicQuote: {
+    color: LUXURY.pearl,
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: "600",
+  },
+  quickGrid: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+  },
+  quickCard: {
+    flex: 1,
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+  },
+  quickIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 14,
+    marginBottom: 10,
   },
-  finishButtonDisabled: { opacity: 0.4 },
-  finishButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  input: {
-    backgroundColor: COLORS.card,
-    borderRadius: 14,
-    height: 52,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    color: COLORS.ink,
-    marginBottom: 2,
-  },
-  cancelText: {
-    color: COLORS.secondary,
-    textAlign: "center",
-    fontWeight: "600",
-    marginTop: 17,
+  quickIconText: { fontSize: 16, fontWeight: "800" },
+  quickLabel: {
+    color: LUXURY.snow,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 16,
   },
 });

@@ -1,47 +1,95 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  FadeInDown,
+  FadeInRight,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { readTrainingLogs } from "@/lib/fitness-storage";
+import { LUXURY } from "@/constants/theme";
+import {
+  DEFAULT_MISSIONS,
+  getRank,
+  getStreakDays,
+  getTotalXp,
+  randomStoicQuote,
+  readAllProgress,
+  STOIC_QUOTES,
+  type WarriorProfile,
+} from "@/lib/forge-storage";
 
-const COLORS = {
-  bg: "#F2F2F7",
-  card: "#FFFFFF",
-  ink: "#111113",
-  secondary: "#777782",
-  blue: "#007AFF",
-  green: "#34C759",
-  line: "#E6E6EB",
-  red: "#FF3B30",
-};
-const goals = [
-  "Ganar fuerza",
-  "Ganar musculo",
-  "Perder grasa",
-  "Moverme mejor",
+const AREAS = [
+  {
+    id: "discipline",
+    label: "Disciplina férrea",
+    color: LUXURY.gold,
+    icon: "◎",
+    questions: [
+      "¿Qué acción no negociable has dejado de hacer esta semana?",
+      "¿A qué hora sales de tu cama sin excusas? Fíjalo en piedra.",
+      "¿Qué 3 hábitos quieres que sean imborrables en 90 días?",
+    ],
+  },
+  {
+    id: "focus",
+    label: "Enfoque profundo",
+    color: LUXURY.neon,
+    icon: "✦",
+    questions: [
+      "¿Qué tarea movería montañas hoy? Escribe solo una.",
+      "¿Cuándo van a ser tus 90 minutos sin distracciones?",
+      "¿Qué aplicación te roba voluntad y la cierras ahora?",
+    ],
+  },
+  {
+    id: "mindset",
+    label: "Mentalidad ganadora",
+    color: LUXURY.violet,
+    icon: "◇",
+    questions: [
+      "¿Qué pensamiento derrotista has repetido esta semana?",
+      "¿Qué está en tu control y qué no hoy? Sepáralo.",
+      "¿Qué es lo peor que puede pasar si das el paso que estás evitando?",
+    ],
+  },
+  {
+    id: "ego",
+    label: "Ego positivo",
+    color: LUXURY.emerald,
+    icon: "⟐",
+    questions: [
+      "Menciona 3 victorias pequeñas de los últimos 7 días.",
+      "¿Por qué eres mejor hoy que hace un mes?",
+      "¿Qué te hace inigualable? Escríbelo sin miedo.",
+    ],
+  },
 ];
-const levels = ["Estoy empezando", "Intermedio", "Avanzado"];
-const weekDays = [
-  { key: "1", label: "L" },
-  { key: "2", label: "M" },
-  { key: "3", label: "X" },
-  { key: "4", label: "J" },
-  { key: "5", label: "V" },
-  { key: "6", label: "S" },
-  { key: "0", label: "D" },
+
+const MISSION_CATEGORIES = [
+  "Levantarse a una hora concreta",
+  "Entrenar cuerpo o mente cada día",
+  "Lectura diaria",
+  "Frío (ducha, paseo, baño)",
+  "Agradecimiento y reflexión",
+  "Reducción de distracciones móviles",
+  "Sin quejas ni excusas",
+  "Plan de 3 prioridades cada mañana",
 ];
+
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_RETRIES = 2;
 
@@ -72,45 +120,192 @@ async function fetchWithRetry(
   throw new Error("No se pudo conectar con el servidor");
 }
 
+function Option({
+  value,
+  selected,
+  onPress,
+  icon,
+  color,
+}: {
+  value: string;
+  selected: boolean;
+  onPress: () => void;
+  icon?: string;
+  color?: string;
+}) {
+  const press = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: press.value }],
+  }));
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.option,
+        selected &&
+          color && {
+            borderColor: `${color}55`,
+            backgroundColor: `${color}18`,
+          },
+        pressed && { opacity: 0.88 },
+      ]}
+      onPress={onPress}
+      onPressIn={() => {
+        press.value = withTiming(0.97, { duration: 120 });
+      }}
+      onPressOut={() => {
+        press.value = withTiming(1, {
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+        });
+      }}
+    >
+      <Animated.View
+        style={[
+          pressStyle,
+          {
+            flex: 1,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          },
+        ]}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {icon ? (
+            <View
+              style={[
+                styles.optionIcon,
+                color && {
+                  backgroundColor: `${color}22`,
+                  borderColor: `${color}44`,
+                },
+              ]}
+            >
+              <Text style={[styles.optionIconText, color && { color }]}>
+                {icon}
+              </Text>
+            </View>
+          ) : null}
+          <Text style={[styles.optionText, selected && color && { color }]}>
+            {value}
+          </Text>
+        </View>
+        <View
+          style={[styles.radio, selected && color && { borderColor: color }]}
+        >
+          {selected ? (
+            <View
+              style={[
+                styles.radioInner,
+                color ? { backgroundColor: color } : {},
+              ]}
+            />
+          ) : null}
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export default function CoachScreen() {
   const insets = useSafeAreaInsets();
-  const [selectedGoals, setSelectedGoals] = useState([goals[0]]);
-  const [level, setLevel] = useState(levels[0]);
-  const [selectedDays, setSelectedDays] = useState(["1", "3", "5"]);
-  const [exerciseCount, setExerciseCount] = useState("5");
-  const [equipment, setEquipment] = useState("Gimnasio completo");
-  const [limitations, setLimitations] = useState("");
+  const [profile, setProfile] = useState<WarriorProfile | null>(null);
+  const [areas, setAreas] = useState<string[]>([AREAS[0].id]);
+  const [missionCount, setMissionCount] = useState("5");
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([
+    MISSION_CATEGORIES[0],
+    MISSION_CATEGORIES[7],
+  ]);
+  const [intensity, setIntensity] = useState("Templado");
+  const [weakness, setWeakness] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [adaptiveAdvice, setAdaptiveAdvice] = useState("");
+  const [plan, setPlan] = useState<string>("");
   const requestController = useRef<AbortController | null>(null);
+  const [rankMeta, setRankMeta] = useState({ level: 1, xp: 0, streak: 0 });
+
+  const progress = useSharedValue(0);
+  const introQuote = useMemo(() => randomStoicQuote(), []);
+
+  useEffect(() => {
+    AsyncStorage.getItem("vertice-profile").then((raw) => {
+      if (raw) setProfile(JSON.parse(raw));
+    });
+    Promise.all([getTotalXp(), readAllProgress()]).then(([xp, byDay]) => {
+      const rank = getRank(xp);
+      setRankMeta({
+        level: rank.current.level,
+        xp,
+        streak: getStreakDays(byDay),
+      });
+      progress.value = withTiming(rank.progress, { duration: 900 });
+    });
+  }, []);
+
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${Math.min(100, progress.value * 100)}%`,
+  }));
 
   useEffect(() => () => requestController.current?.abort(), []);
 
-  useEffect(() => {
-    readTrainingLogs().then((logs) => {
-      const latest = logs.find(
-        (log) => log.averageRpe !== undefined || log.averageRir !== undefined,
-      );
-      if (!latest) return;
-      if ((latest.averageRir ?? 2) >= 3 || (latest.averageRpe ?? 8) <= 7) {
-        setAdaptiveAdvice(
-          "Tu última sesión fue controlada. Prueba a subir un 2,5-5% la carga.",
+  const generateLocalPlan = () => {
+    const selectedAreas = AREAS.filter((a) => areas.includes(a.id));
+    const days = [
+      "Lunes",
+      "Martes",
+      "Miércoles",
+      "Jueves",
+      "Viernes",
+      "Sábado",
+      "Domingo",
+    ];
+    const core = [
+      ...DEFAULT_MISSIONS.filter((m) => m.nonNegotiable).slice(0, 3),
+      ...DEFAULT_MISSIONS.filter(
+        (m) =>
+          !m.nonNegotiable &&
+          MISSION_CATEGORIES.some((c) => m.text.includes(c)),
+      ).slice(0, Number(missionCount) || 5),
+    ].slice(0, Number(missionCount) || 5);
+    const weekPlan = days
+      .map((day, idx) => {
+        const focus =
+          selectedAreas[idx % selectedAreas.length] ?? selectedAreas[0];
+        const question =
+          focus?.questions[idx % focus.questions.length] ??
+          "¿Qué paso pequeño, pero no negociable, doy hoy?";
+        const intensityLine =
+          intensity === "Forjado a fuego"
+            ? "Maximiza incomodidad, mantén la técnica."
+            : intensity === "Templado"
+              ? "Empieza firme y remata con fuerza."
+              : "Consistencia primero, intensidad después.";
+        return (
+          `### ${day} · ${focus?.label ?? "Disciplina"}` +
+          `\n- ${question}` +
+          `\n- Misiones hoy: ${core
+            .slice(0, 5)
+            .map((m) => m.text)
+            .join(" / ")}` +
+          `\n- ${intensityLine}`
         );
-      } else if (
-        (latest.averageRpe ?? 8) >= 9.5 ||
-        (latest.averageRir ?? 2) <= 0
-      ) {
-        setAdaptiveAdvice(
-          "Tu última sesión fue muy exigente. Mantén o reduce un 5% la carga.",
-        );
-      } else {
-        setAdaptiveAdvice(
-          "Tu carga está bien ajustada. Mantén el peso y busca una repetición extra.",
-        );
-      }
-    });
-  }, []);
+      })
+      .join("\n\n");
+
+    const final =
+      `# Plan VÉRTICE generado\n\n` +
+      `## Perfil\n` +
+      `Guerrero: ${profile?.name ?? "No definido"} · Rango Nº ${rankMeta.level} · ${rankMeta.xp} XP · ${rankMeta.streak} días de racha\n` +
+      `Mantra: ${profile?.mantra ?? STOIC_QUOTES[0]}\n\n` +
+      `## Áreas seleccionadas\n` +
+      selectedAreas.map((a) => `• ${a.label}`).join("\n") +
+      `\n\n` +
+      `## Semana de guerra\n\n` +
+      weekPlan +
+      `\n\n## Nota final\n` +
+      `“${introQuote}”`;
+    return final;
+  };
 
   const generate = async () => {
     const expoHost = Constants.expoConfig?.hostUri?.split(":")[0];
@@ -119,73 +314,49 @@ export default function CoachScreen() {
       (expoHost ? `http://${expoHost}:8787` : "http://192.168.1.130:8787");
     setLoading(true);
     setMessage("");
+    setPlan("");
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
     try {
-      const profile = await AsyncStorage.getItem("pulse-profile");
+      const stored = await AsyncStorage.getItem("vertice-profile");
       const response = await fetchWithRetry(
         `${endpoint}/api/coach`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            profile: profile ? JSON.parse(profile) : {},
-            goals: selectedGoals,
-            level,
-            days: selectedDays,
-            exerciseCount: Math.min(
-              Math.max(Number.parseInt(exerciseCount, 10) || 5, 1),
-              8,
-            ),
-            equipment,
-            limitations,
+            profile: stored ? JSON.parse(stored) : {},
+            kind: "vertice",
+            areas,
+            missionCategories: selectedCategories,
+            missionCount: Number(missionCount) || 5,
+            intensity,
+            weakness,
+            rank: rankMeta,
           }),
         },
         controller.signal,
       );
       const result = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
         throw new Error(
           result.error ||
             `El servidor respondió con error (${response.status})`,
         );
-      const routine = result.routine;
-      const requestedExerciseCount = Math.min(
-        Math.max(Number.parseInt(exerciseCount, 10) || 5, 1),
-        8,
-      );
-      const routineRecord = {
-        id: `routine-ai-${Date.now()}`,
-        name: routine.name,
-        exerciseIds: [],
-        updatedAt: Date.now(),
-        aiExercises: routine.exercises.slice(0, requestedExerciseCount),
-      };
-      const stored = await AsyncStorage.getItem("pulse-routines");
-      const routines = stored ? JSON.parse(stored) : [];
-      await AsyncStorage.setItem(
-        "pulse-routines",
-        JSON.stringify([routineRecord, ...routines]),
-      );
-      await AsyncStorage.setItem("pulse-routine", routine.name);
-      await AsyncStorage.setItem(
-        "pulse-plan",
-        JSON.stringify(
-          Object.fromEntries(
-            selectedDays.map((day) => [day, routineRecord.id]),
-          ),
-        ),
-      );
-      setMessage(`Listo: ${routine.name} se ha añadido a Rutinas y Plan.`);
+      }
+      const planText =
+        result.plan ?? result.routine?.name ?? generateLocalPlan();
+      setPlan(planText);
+      await AsyncStorage.setItem("vertice-last-plan", planText);
+      setMessage("Plan generado y guardado localmente.");
     } catch (error) {
       if (controller.signal.aborted) return;
-      const friendlyMessage =
-        error instanceof DOMException && error.name === "AbortError"
-          ? "La solicitud tardó demasiado. Comprueba tu conexión e inténtalo de nuevo."
-          : "Sin conexión a Internet. Comprueba tu red e inténtalo de nuevo.";
-      setMessage(friendlyMessage);
-      Alert.alert("No se pudo generar el plan", friendlyMessage);
+      const fallback = generateLocalPlan();
+      setPlan(fallback);
+      setMessage(
+        "Usamos el plan generado localmente: sin conexión al coach remoto.",
+      );
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -198,264 +369,443 @@ export default function CoachScreen() {
         styles.content,
         { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 110 },
       ]}
+      showsVerticalScrollIndicator={false}
     >
       <Animated.View entering={FadeInDown.duration(450)}>
-        <Text style={styles.eyebrow}>PULSE COACH</Text>
-        <Text style={styles.title}>Tu rutina, hecha para ti</Text>
+        <Text style={styles.eyebrow}>COACH · VÉRTICE</Text>
+        <Text style={styles.title}>Tu estrategia mental, semanal.</Text>
         <Text style={styles.subtitle}>
-          Responde unas preguntas y la IA preparará una rutina y una semana de
-          entrenamiento.
+          Define áreas, intensidad y tu punto débil. El coach prepara tu plan de
+          batalla.
         </Text>
-        {adaptiveAdvice ? (
-          <View style={styles.adaptiveCard}>
-            <Text style={styles.adaptiveLabel}>AJUSTE ADAPTATIVO</Text>
-            <Text style={styles.adaptiveText}>{adaptiveAdvice}</Text>
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInDown.delay(60).duration(450)}
+        style={styles.profileCard}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.profileEyebrow}>GUERRERO</Text>
+          <Text style={styles.profileName}>
+            {profile?.name ?? "Sin nombre definido"}
+          </Text>
+          <Text style={styles.profileMantra}>
+            {profile?.mantra ?? "Aún no tienes mantra."}
+          </Text>
+          <View style={styles.progressTrack}>
+            <Animated.View style={[styles.progressFill, progressStyle]} />
           </View>
-        ) : null}
-        <Text style={styles.label}>Objetivos (puedes elegir varios)</Text>
+          <Text style={styles.profileHint}>
+            Rango Nº {rankMeta.level} · {rankMeta.xp} XP · {rankMeta.streak}{" "}
+            días racha
+          </Text>
+        </View>
+        <View style={styles.profileBadge}>
+          <Text style={styles.profileBadgeText}>V</Text>
+        </View>
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInDown.delay(120).duration(450)}
+        style={styles.card}
+      >
+        <Text style={styles.label}>¿Qué pilares quieres dominar?</Text>
         <View style={styles.options}>
-          {goals.map((item) => (
+          {AREAS.map((area) => (
             <Option
-              key={item}
-              value={item}
-              selected={selectedGoals.includes(item)}
+              key={area.id}
+              value={area.label}
+              icon={area.icon}
+              color={area.color}
+              selected={areas.includes(area.id)}
               onPress={() =>
-                setSelectedGoals((current) =>
-                  current.includes(item)
-                    ? current.filter((goal) => goal !== item)
-                    : [...current, item],
+                setAreas((current) =>
+                  current.includes(area.id)
+                    ? current.filter((x) => x !== area.id)
+                    : [...current, area.id],
                 )
               }
             />
           ))}
         </View>
-        <Text style={styles.label}>Nivel</Text>
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInDown.delay(180).duration(450)}
+        style={styles.card}
+      >
+        <Text style={styles.label}>Categorías de misiones diarias</Text>
         <View style={styles.options}>
-          {levels.map((item) => (
+          {MISSION_CATEGORIES.map((m) => (
             <Option
-              key={item}
-              value={item}
-              selected={level === item}
-              onPress={() => setLevel(item)}
+              key={m}
+              value={m}
+              selected={selectedCategories.includes(m)}
+              onPress={() =>
+                setSelectedCategories((current) =>
+                  current.includes(m)
+                    ? current.filter((x) => x !== m)
+                    : [...current, m],
+                )
+              }
             />
           ))}
         </View>
-        <Text style={styles.label}>Días de entrenamiento</Text>
-        <View style={styles.days}>
-          {weekDays.map((day) => (
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInDown.delay(240).duration(450)}
+        style={styles.card}
+      >
+        <Text style={styles.label}>Número de misiones al día</Text>
+        <View style={styles.row}>
+          {["3", "5", "7", "9"].map((n) => (
             <Pressable
-              key={day.key}
-              onPress={() =>
-                setSelectedDays((current) =>
-                  current.includes(day.key)
-                    ? current.filter((item) => item !== day.key)
-                    : [...current, day.key],
-                )
-              }
-              style={[
-                styles.day,
-                selectedDays.includes(day.key) && styles.daySelected,
-              ]}
+              key={n}
+              style={[styles.pill, missionCount === n && styles.pillSelected]}
+              onPress={() => setMissionCount(n)}
             >
               <Text
                 style={[
-                  styles.dayText,
-                  selectedDays.includes(day.key) && styles.dayTextSelected,
+                  styles.pillText,
+                  missionCount === n && styles.pillTextSelected,
                 ]}
               >
-                {day.label}
+                {n}
               </Text>
             </Pressable>
           ))}
         </View>
-        <Text style={styles.label}>Ejercicios por sesión</Text>
+        <Text style={styles.label}>Intensidad semanal</Text>
+        <View style={styles.options}>
+          {["Conservador", "Templado", "Forjado a fuego"].map((level) => (
+            <Option
+              key={level}
+              value={level}
+              selected={intensity === level}
+              onPress={() => setIntensity(level)}
+            />
+          ))}
+        </View>
+        <Text style={styles.label}>¿Dónde te notas más flojo?</Text>
         <TextInput
-          value={exerciseCount}
-          onChangeText={setExerciseCount}
-          keyboardType="number-pad"
+          value={weakness}
+          onChangeText={setWeakness}
+          placeholder="Ej: me desconcentro al móvil, me quejo de todo…"
+          placeholderTextColor={LUXURY.ash}
+          selectionColor={LUXURY.gold}
           style={styles.input}
-          placeholder="5"
-          placeholderTextColor={COLORS.secondary}
-        />
-        <Text style={styles.label}>Equipamiento disponible</Text>
-        <TextInput
-          value={equipment}
-          onChangeText={setEquipment}
-          style={styles.input}
-          placeholder="Gimnasio, casa..."
-          placeholderTextColor={COLORS.secondary}
-        />
-        <Text style={styles.label}>Lesiones o limitaciones</Text>
-        <TextInput
-          value={limitations}
-          onChangeText={setLimitations}
-          style={[styles.input, styles.multiline]}
           multiline
-          placeholder="Escribe ninguna si no aplica"
-          placeholderTextColor={COLORS.secondary}
         />
-        {message ? <Text style={styles.message}>{message}</Text> : null}
-        <Pressable
-          onPress={generate}
-          disabled={loading}
-          style={[styles.button, loading && styles.disabled]}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Generar mi plan</Text>
-          )}
-        </Pressable>
-        <Text style={styles.disclaimer}>
-          La IA no sustituye el consejo de un profesional sanitario. Si tienes
-          dolor o una lesión, consulta antes de entrenar.
-        </Text>
       </Animated.View>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.button,
+          (loading || !areas.length || !selectedCategories.length) &&
+            styles.buttonDisabled,
+          pressed && styles.pressed,
+        ]}
+        onPress={generate}
+        disabled={loading || !areas.length || !selectedCategories.length}
+      >
+        {loading ? (
+          <ActivityIndicator color={LUXURY.ink} />
+        ) : (
+          <Text style={styles.buttonText}>FORJAR MI PLAN SEMANAL →</Text>
+        )}
+      </Pressable>
+
+      {message ? (
+        <Animated.View
+          entering={FadeInRight.duration(400)}
+          style={styles.messageCard}
+        >
+          <Text style={styles.messageText}>{message}</Text>
+        </Animated.View>
+      ) : null}
+
+      {plan ? (
+        <Animated.View
+          entering={FadeInDown.delay(80).duration(500)}
+          style={styles.planCard}
+        >
+          <Text style={styles.planLabel}>TU PLAN VÉRTICE</Text>
+          <ScrollView nestedScrollEnabled style={styles.planScroll}>
+            {plan.split("\n").map((line, i) => {
+              const isHeading = line.startsWith("#");
+              const isSub = line.startsWith("##");
+              return (
+                <Text
+                  key={i}
+                  style={
+                    isSub
+                      ? styles.planSub
+                      : isHeading
+                        ? styles.planTitle
+                        : styles.planLine
+                  }
+                >
+                  {line.replace(/^#{1,3}\s*/, "")}
+                </Text>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+      ) : null}
     </ScrollView>
   );
 }
 
-function Option({
-  value,
-  selected,
-  onPress,
-}: {
-  value: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.option, selected && styles.optionSelected]}
-    >
-      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
-        {value}
-      </Text>
-      <View style={[styles.radio, selected && styles.radioSelected]} />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.bg },
+  root: { flex: 1, backgroundColor: LUXURY.ink },
   content: {
     paddingHorizontal: 20,
     maxWidth: 800,
-    width: "100%",
     alignSelf: "center",
+    width: "100%",
   },
   eyebrow: {
-    color: COLORS.secondary,
+    color: LUXURY.gold,
     fontSize: 11,
+    letterSpacing: 1.8,
     fontWeight: "800",
-    letterSpacing: 1.1,
+    marginBottom: 8,
   },
-  title: { color: COLORS.ink, fontSize: 32, fontWeight: "700", marginTop: 6 },
+  title: {
+    color: LUXURY.snow,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34,
+    marginBottom: 6,
+  },
   subtitle: {
-    color: COLORS.secondary,
+    color: LUXURY.mist,
     fontSize: 14,
     lineHeight: 20,
-    marginTop: 8,
-    marginBottom: 22,
+    marginBottom: 20,
+  },
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 18,
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: `${LUXURY.gold}22`,
+  },
+  profileEyebrow: {
+    color: LUXURY.ash,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  profileName: {
+    color: LUXURY.snow,
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  profileMantra: {
+    color: LUXURY.pearl,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    marginBottom: 10,
+  },
+  progressTrack: {
+    height: 5,
+    backgroundColor: LUXURY.charcoal,
+    borderRadius: 4,
+    marginBottom: 6,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: LUXURY.gold,
+    borderRadius: 4,
+  },
+  profileHint: {
+    color: LUXURY.ash,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  profileBadge: {
+    width: 62,
+    height: 62,
+    borderRadius: 22,
+    backgroundColor: LUXURY.obsidian,
+    borderWidth: 1,
+    borderColor: `${LUXURY.gold}44`,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: LUXURY.gold,
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+  },
+  profileBadgeText: {
+    color: LUXURY.goldSoft,
+    fontSize: 26,
+    fontWeight: "900",
+  },
+  card: {
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
   },
   label: {
-    color: COLORS.ink,
+    color: LUXURY.snow,
     fontSize: 14,
-    fontWeight: "700",
-    marginTop: 16,
-    marginBottom: 8,
+    fontWeight: "800",
+    marginBottom: 12,
+    marginTop: 0,
   },
-  options: { gap: 8 },
-  days: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: COLORS.card,
-    borderRadius: 14,
-    padding: 8,
-  },
-  day: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+  options: { gap: 10 },
+  option: {
+    minHeight: 54,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    backgroundColor: LUXURY.obsidian,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
     alignItems: "center",
     justifyContent: "center",
   },
-  daySelected: { backgroundColor: COLORS.blue },
-  dayText: { color: COLORS.secondary, fontWeight: "800" },
-  dayTextSelected: { color: "#fff" },
-  option: {
-    backgroundColor: COLORS.card,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: COLORS.card,
-    minHeight: 48,
-    paddingHorizontal: 15,
-    flexDirection: "row",
+  optionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: LUXURY.charcoal,
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    borderWidth: 1,
   },
-  optionSelected: { backgroundColor: "#E8F2FF", borderColor: COLORS.blue },
-  optionText: { color: COLORS.ink, fontSize: 14, fontWeight: "600" },
-  optionTextSelected: { color: COLORS.blue },
+  optionIconText: { fontSize: 12, fontWeight: "800" },
+  optionText: {
+    color: LUXURY.snow,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   radio: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: "#C7C7CF",
-  },
-  radioSelected: { borderColor: COLORS.blue, backgroundColor: COLORS.blue },
-  input: {
-    backgroundColor: COLORS.card,
-    borderRadius: 14,
-    minHeight: 50,
-    paddingHorizontal: 15,
-    color: COLORS.ink,
-    fontSize: 15,
-  },
-  multiline: { minHeight: 82, paddingTop: 14, textAlignVertical: "top" },
-  message: {
-    color: COLORS.ink,
-    backgroundColor: "#EAF8EE",
+    width: 22,
+    height: 22,
     borderRadius: 12,
-    padding: 12,
-    marginTop: 16,
-    lineHeight: 19,
+    borderWidth: 2,
+    borderColor: LUXURY.stone,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  adaptiveCard: {
-    backgroundColor: "#EAF8EE",
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: LUXURY.gold,
+  },
+  row: { flexDirection: "row", gap: 10, marginBottom: 18 },
+  pill: {
+    flex: 1,
+    height: 46,
     borderRadius: 14,
+    backgroundColor: LUXURY.obsidian,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
+  },
+  pillSelected: {
+    backgroundColor: `${LUXURY.gold}22`,
+    borderColor: `${LUXURY.gold}55`,
+  },
+  pillText: { color: LUXURY.ash, fontSize: 14, fontWeight: "800" },
+  pillTextSelected: { color: LUXURY.goldSoft },
+  input: {
+    minHeight: 78,
+    borderRadius: 16,
+    backgroundColor: LUXURY.obsidian,
     padding: 14,
-    marginBottom: 8,
-  },
-  adaptiveLabel: {
-    color: "#248A3D",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  adaptiveText: {
-    color: COLORS.ink,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 5,
+    color: LUXURY.snow,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
+    textAlignVertical: "top",
   },
   button: {
-    minHeight: 52,
-    backgroundColor: COLORS.blue,
-    borderRadius: 15,
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: LUXURY.gold,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 18,
+    marginTop: 4,
+    marginBottom: 16,
+    shadowColor: LUXURY.gold,
+    shadowOpacity: 0.3,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
   },
-  disabled: { opacity: 0.65 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  disclaimer: {
-    color: COLORS.secondary,
+  buttonDisabled: { opacity: 0.35 },
+  buttonText: {
+    color: LUXURY.ink,
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  pressed: { opacity: 0.86, transform: [{ scale: 0.985 }] },
+  messageCard: {
+    backgroundColor: `${LUXURY.emerald}18`,
+    borderWidth: 1,
+    borderColor: `${LUXURY.emerald}44`,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  messageText: {
+    color: LUXURY.emerald,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  planCard: {
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: `${LUXURY.neon}22`,
+  },
+  planLabel: {
+    color: LUXURY.neonSoft,
     fontSize: 11,
-    lineHeight: 16,
-    marginTop: 14,
-    marginBottom: 10,
+    letterSpacing: 1.6,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+  planScroll: {
+    maxHeight: 520,
+    borderRadius: 14,
+    backgroundColor: LUXURY.obsidian,
+    padding: 16,
+  },
+  planTitle: {
+    color: LUXURY.goldSoft,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  planSub: {
+    color: LUXURY.snow,
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  planLine: {
+    color: LUXURY.pearl,
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 2,
   },
 });
