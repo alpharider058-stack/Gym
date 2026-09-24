@@ -1,98 +1,129 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
-  FadeInDown,
-  FadeInRight,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
+    FadeInDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { LUXURY } from "@/constants/theme";
+import { LUXURY, SHADOWS } from "@/constants/theme";
 import {
-  DEFAULT_MISSIONS,
-  STOIC_QUOTES,
-  getAchievements,
-  getRank,
-  getStreakDays,
-  getTotalXp,
-  getVictories,
-  getWeeklySummary,
-  readAllProgress,
-  RANKS,
-  type VictoryCard,
-  type WarriorProfile,
-} from "@/lib/forge-storage";
+    getChampionTitle,
+    getConquests,
+    getDominanceScore,
+    getProfile,
+    getRecentTriumphs,
+    getTotalConquests,
+    getTrophyCase,
+    saveTriumph,
+    type Conquest,
+    type Triumph,
+    type Trophy,
+} from "@/lib/forge-storage-victory";
 
-const MONTHS = [
-  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
-];
-
-export default function VaultScreen() {
+export default function HallOfChampions() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const [profile, setProfile] = useState<WarriorProfile | null>(null);
-  const [xp, setXp] = useState(0);
-  const [streakDays, setStreakDays] = useState(0);
-  const [victories, setVictories] = useState<VictoryCard[]>([]);
-  const [activeTab, setActiveTab] = useState<"ranks" | "achievements" | "victories" | "stats">("ranks");
-  const [monthFocus, setMonthFocus] = useState<number[]>(Array(30).fill(0));
-  const [totalMissions, setTotalMissions] = useState(0);
-  const [totalFocusMinutes, setTotalFocusMinutes] = useState(0);
-  const [weeksTrained, setWeeksTrained] = useState(0);
+  const [profile, setProfile] = useState(null);
+  const [conquests, setConquests] = useState<Conquest[]>([]);
+  const [totalConquests, setTotalConquests] = useState(0);
+  const [dominanceScore, setDominanceScore] = useState(0);
+  const [championTitle, setChampionTitle] = useState("Iniciado");
+  const [trophyCase, setTrophyCase] = useState<Trophy[]>([]);
+  const [recentTriumphs, setRecentTriumphs] = useState<Triumph[]>([]);
+  const [triumphToSave, setTriumphToSave] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
-  const rank = getRank(xp);
-  const achievements = getAchievements(xp, streakDays, totalFocusMinutes, totalMissions);
-  const unlocked = achievements.filter((a) => a.unlocked).length;
-
-  const load = async () => {
-    const profileRaw = await AsyncStorage.getItem("vertice-profile");
-    if (profileRaw) setProfile(JSON.parse(profileRaw));
-    const [progressByDay, totalXp, victoriesList, weekly] = await Promise.all([
-      readAllProgress(),
-      getTotalXp(),
-      getVictories(),
-      getWeeklySummary(),
-    ]);
-    setXp(totalXp);
-    setVictories(victoriesList);
-    setStreakDays(getStreakDays(progressByDay));
-    const totalM = Object.values(progressByDay).reduce(
-      (sum, day) => sum + day.completedIds.length,
-      0,
-    );
-    setTotalMissions(totalM);
-
-    const daysArr = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (29 - i));
-      const key = d.toISOString().slice(0, 10);
-      const day = progressByDay[key];
-      return day ? day.completedIds.length + (day.focusMinutes / 15) : 0;
-    });
-    setMonthFocus(daysArr);
-
-    const { totalFocus, activeDays } = await getWeeklySummary();
-    setTotalFocusMinutes(totalFocus * Math.ceil(streakDays / 7) || totalFocus + (streakDays * 40));
-    setWeeksTrained(Math.max(1, Math.ceil(streakDays / 7)));
-  };
-
-  useFocusEffect(() => {
-    load();
-  });
-
-  const tabScale = useSharedValue(1);
-  const tabStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: tabScale.value }],
+  const gloryPulse = useSharedValue(1);
+  const gloryPulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: gloryPulse.value }],
   }));
 
-  const monthMax = Math.max(...monthFocus, 1);
-  const today = new Date();
+  useEffect(() => {
+    gloryPulse.value = withRepeat(
+      withSequence([
+        withTiming(1.05, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ]),
+      -1,
+      true,
+    );
+  }, []);
+
+  const loadChampionData = useCallback(async () => {
+    const [prof, conquestList, total, dominance, title, trophies, triumphs] =
+      await Promise.all([
+        getProfile(),
+        getConquests(),
+        getTotalConquests(),
+        getDominanceScore(),
+        getChampionTitle(),
+        getTrophyCase(),
+        getRecentTriumphs(),
+      ]);
+    setProfile(prof);
+    setConquests(conquestList);
+    setTotalConquests(total);
+    setDominanceScore(dominance);
+    setChampionTitle(title);
+    setTrophyCase(trophies);
+    setRecentTriumphs(triumphs);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadChampionData();
+    }, [loadChampionData]),
+  );
+
+  const saveTriumphHandler = useCallback(async () => {
+    if (triumphToSave) {
+      await saveTriumph(triumphToSave);
+      setTriumphToSave(null);
+      // Refresh triumphs
+      const updatedTriumphs = await getRecentTriumphs();
+      setRecentTriumphs(updatedTriumphs);
+    }
+  }, [triumphToSave]);
+
+  const gloryLevels = [
+    { threshold: 90, title: "LEYENDA VIVA", icon: "👑", color: LUXURY.gold },
+    {
+      threshold: 75,
+      title: "CAMPEÓN ETERNO",
+      icon: "⚔️",
+      color: LUXURY.emerald,
+    },
+    {
+      threshold: 60,
+      title: "SEÑOR DE LA GUERRA",
+      icon: "🛡️",
+      color: LUXURY.neon,
+    },
+    { threshold: 40, title: "GUERRERO ELITE", icon: "🎯", color: LUXURY.gold },
+    {
+      threshold: 20,
+      title: "LUCHADOR VALIENTE",
+      icon: "💪",
+      color: LUXURY.neon,
+    },
+    {
+      threshold: 0,
+      title: "INICIADO DEL TRIUNFO",
+      icon: "⚡",
+      color: LUXURY.graphite,
+    },
+  ];
+
+  const currentGlory =
+    gloryLevels.find((level) => dominanceScore >= level.threshold) ||
+    gloryLevels[gloryLevels.length - 1];
 
   return (
     <View style={styles.root}>
@@ -107,240 +138,192 @@ export default function VaultScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Hall of Champions Header */}
         <Animated.View
           entering={FadeInDown.duration(500)}
-          style={styles.header}
+          style={styles.championHeader}
         >
-          <View>
-            <Text style={styles.eyebrow}>EL ESPEJO DE LOGROS</Text>
-            <Text style={styles.title}>
-              {profile ? `${profile.name}` : "Guerrero"}
+          <View style={styles.championInfo}>
+            <Text style={styles.championName}>
+              {profile?.name ? `${profile.name.toUpperCase()}` : "CAMPEÓN"}
             </Text>
-            <Text style={styles.subtitle}>{rank.current.title}</Text>
+            <Text style={styles.championTitle}>{currentGlory.title}</Text>
           </View>
-          <View style={[styles.emblem]}>
-            <Text style={styles.emblemIcon}>{rank.current.icon}</Text>
-          </View>
+          <Animated.View
+            style={[
+              styles.championEmblem,
+              gloryPulseStyle,
+              {
+                backgroundColor: `${currentGlory.color}22`,
+                borderColor: currentGlory.color,
+              },
+            ]}
+          >
+            <Text style={styles.championIcon}>{currentGlory.icon}</Text>
+          </Animated.View>
         </Animated.View>
 
-        <Animated.View
-          entering={FadeInDown.delay(80).duration(500)}
-          style={[styles.summaryCard]}
-        >
-          <View style={styles.summaryGrid}>
-            {[
-              { label: "Nivel actual", value: `Nº ${rank.current.level}`, color: LUXURY.gold },
-              { label: "Racha", value: `${streakDays} d`, color: LUXURY.blood },
-              { label: "XP total", value: `${xp}`, color: LUXURY.neon },
-              { label: "Logros", value: `${unlocked}/${achievements.length}`, color: LUXURY.emerald },
-            ].map((m, i) => (
-              <Animated.View
-                key={m.label}
-                entering={FadeInRight.delay(160 + i * 70).duration(420)}
-                style={[styles.summaryPill, { borderColor: `${m.color}33` }]}
-              >
-                <Text style={[styles.summaryValue, { color: m.color }]}>{m.value}</Text>
-                <Text style={styles.summaryLabel}>{m.label}</Text>
-              </Animated.View>
-            ))}
+        {/* Glory Metrics */}
+        <View style={styles.metricsContainer}>
+          <View style={styles.metricsRow}>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>CONQUISTAS TOTALES</Text>
+              <Text style={styles.metricValue}>{totalConquests}</Text>
+            </View>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>PUNTUACIÓN DE GLORIA</Text>
+              <Text style={styles.metricValue}>{dominanceScore}%</Text>
+            </View>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>TROFEOS OBTENIDOS</Text>
+              <Text style={styles.metricValue}>{trophyCase.length}</Text>
+            </View>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>TRIUNFOS RECIENTES</Text>
+              <Text style={styles.metricValue}>{recentTriumphs.length}</Text>
+            </View>
           </View>
-          <View style={styles.quoteRow}>
-            <Text style={styles.quoteText}>
-              “{profile?.mantra ?? STOIC_QUOTES[Math.floor(Math.random() * STOIC_QUOTES.length)]}”
-            </Text>
-          </View>
-        </Animated.View>
-
-        <View style={styles.tabRow}>
-          {([
-            { key: "ranks", label: "Rangos" },
-            { key: "achievements", label: "Logros" },
-            { key: "victories", label: "Victorias" },
-            { key: "stats", label: "Estadísticas" },
-          ] as const).map((t) => {
-            const active = activeTab === t.key;
-            return (
-              <Pressable
-                key={t.key}
-                style={[styles.tab, active && styles.tabActive]}
-                onPress={() => {
-                  tabScale.value = withSpring(1.02, { damping: 14 });
-                  setTimeout(() => {
-                    tabScale.value = withSpring(1, { damping: 14 });
-                  }, 120);
-                  setActiveTab(t.key);
-                }}
-              >
-                <Animated.Text style={[styles.tabText, active && styles.tabTextActive]}>
-                  {t.label}
-                </Animated.Text>
-              </Pressable>
-            );
-          })}
         </View>
 
-        {activeTab === "ranks" && (
-          <Animated.View
-            entering={FadeInRight.duration(400)}
-            style={styles.section}
-          >
-            {RANKS.map((r, i) => {
-              const unlocked = xp >= r.xp;
-              const isCurrent = rank.current.level === r.level;
-              return (
-                <Animated.View
-                  key={r.level}
-                  entering={FadeInDown.delay(i * 60).duration(380)}
-                  style={[
-                    styles.rankRow,
-                    unlocked && styles.rankRowUnlocked,
-                    isCurrent && styles.rankRowCurrent,
-                  ]}
-                >
-                  <Text style={[styles.rankIcon, unlocked && styles.rankIconUnlocked]}>
-                    {r.icon}
-                  </Text>
-                  <View style={{ flex: 1, marginLeft: 14 }}>
-                    <Text style={[styles.rankTitle, unlocked && styles.rankTitleUnlocked]}>
-                      {r.title}
-                    </Text>
-                    <Text style={styles.rankXp}>
-                      {r.xp} XP requeridos · Nivel {r.level}
-                    </Text>
-                  </View>
-                  <View style={[styles.rankBadge, unlocked && styles.rankBadgeUnlocked]}>
-                    <Text style={[styles.rankBadgeText, unlocked && styles.rankBadgeTextUnlocked]}>
-                      {unlocked ? "ALCANZADO" : isCurrent ? "ACTUAL" : "BLOQUEADO"}
-                    </Text>
-                  </View>
-                </Animated.View>
-              );
-            })}
-          </Animated.View>
-        )}
+        {/* Glory Bar */}
+        <View style={styles.glorySection}>
+          <Text style={styles.sectionTitle}>BARRA DE GLORIA</Text>
+          <View style={styles.gloryTrackContainer}>
+            <View style={styles.gloryTrack}>
+              <View
+                style={[
+                  styles.gloryFill,
+                  {
+                    width: `${dominanceScore}%`,
+                    backgroundColor: currentGlory.color,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+          <View style={styles.gloryLabelContainer}>
+            <Text style={styles.gloryLabel}>{currentGlory.title}</Text>
+            <Text style={styles.glorySubtitle}>
+              {`${Math.ceil((currentGlory.threshold - dominanceScore) / 10) * 10}% para alcanzar el siguiente nivel`}
+            </Text>
+          </View>
+        </View>
 
-        {activeTab === "achievements" && (
-          <Animated.View
-            entering={FadeInRight.duration(400)}
-            style={[styles.section, styles.achievementsGrid]}
-          >
-            {achievements.map((a, i) => (
-              <Animated.View
-                key={a.id}
-                entering={FadeInDown.delay(i * 70).duration(380)}
-                style={[styles.achievementCard, !a.unlocked && styles.achievementLocked]}
-              >
-                <View style={[
-                  styles.achievementIcon,
-                  { borderColor: a.unlocked ? `${LUXURY.gold}55` : LUXURY.charcoal },
-                ]}>
-                  <Text style={[styles.achievementIconText, a.unlocked && styles.achievementIconTextActive]}>
-                    {a.icon}
-                  </Text>
+        {/* Trophy Case */}
+        {trophyCase.length > 0 ? (
+          <View style={styles.trophySection}>
+            <Text style={styles.sectionTitle}>CAMARA DE TROFEOS</Text>
+            <View style={styles.trophyCaseContainer}>
+              {trophyCase.map((trophy, index) => (
+                <View key={trophy.id} style={styles.trophyDisplay}>
+                  <View style={styles.trophyIconContainer}>
+                    <Text style={styles.trophyIconText}>{trophy.icon}</Text>
+                  </View>
+                  <View style={styles.trophyInfo}>
+                    <Text style={styles.trophyName}>{trophy.name}</Text>
+                    <Text style={styles.trophyDescription}>
+                      {trophy.description}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={[styles.achievementTitle, !a.unlocked && { color: LUXURY.ash }]}>
-                  {a.title}
-                </Text>
-                <Text style={[styles.achievementDesc, !a.unlocked && { color: LUXURY.stone }]}>
-                  {a.description}
-                </Text>
-                <View style={[styles.achievementTier, a.unlocked && styles.achievementTierUnlocked]}>
-                  <Text style={[styles.achievementTierText, a.unlocked && styles.achievementTierTextUnlocked]}>
-                    TIER {a.tier}
-                  </Text>
-                </View>
-              </Animated.View>
-            ))}
-          </Animated.View>
-        )}
-
-        {activeTab === "victories" && (
-          <Animated.View
-            entering={FadeInRight.duration(400)}
-            style={styles.section}
-          >
-            {victories.length ? (
-              victories.slice(0, 10).map((v, i) => (
-                <Animated.View
-                  key={v.id}
-                  entering={FadeInDown.delay(i * 60).duration(380)}
-                  style={styles.victoryCard}
-                >
-                  <View style={styles.victoryIcon}>
-                    <Text style={styles.victoryIconText}>{v.icon}</Text>
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 14 }}>
-                    <Text style={styles.victoryTitle}>{v.title}</Text>
-                    <Text style={styles.victoryDesc}>{v.description}</Text>
-                    <Text style={styles.victoryDate}>
-                      {new Date(v.date).toLocaleDateString("es-ES", {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "short",
-                      })}
-                    </Text>
-                  </View>
-                  <View style={styles.victoryChip}>
-                    <Text style={styles.victoryValue}>{v.value}</Text>
-                  </View>
-                </Animated.View>
-              ))
-            ) : (
-              <View style={styles.emptyVictories}>
-                <Text style={styles.emptyVictoriesIcon}>★</Text>
-                <Text style={styles.emptyVictoriesTitle}>Aún sin victorias selladas</Text>
-                <Text style={styles.emptyVictoriesHint}>
-                  Consigue tu primera racha de 3 días para ver tu tarjeta de victoria aquí.
-                </Text>
-              </View>
-            )}
-          </Animated.View>
-        )}
-
-        {activeTab === "stats" && (
-          <Animated.View
-            entering={FadeInRight.duration(400)}
-            style={styles.section}
-          >
-            <View style={styles.statsGrid}>
-              {[
-                { label: "Misiones completadas", value: `${totalMissions}` },
-                { label: "Minutos de enfoque", value: `${totalFocusMinutes}` },
-                { label: "Días racha", value: `${streakDays}` },
-                { label: "Semanas forjadas", value: `${weeksTrained}` },
-                { label: "Rango actual", value: rank.current.title },
-                { label: "Siguiente rango", value: rank.next?.title ?? "Cima" },
-              ].map((s, i) => (
-                <Animated.View
-                  key={s.label}
-                  entering={FadeInRight.delay(140 + i * 60).duration(360)}
-                  style={styles.statBox}
-                >
-                  <Text style={styles.statValue}>{s.value}</Text>
-                  <Text style={styles.statLabel}>{s.label}</Text>
-                </Animated.View>
               ))}
             </View>
-
-            <Text style={styles.heatmapLabel}>
-              Consistencia últimos 30 días · {MONTHS[today.getMonth()]}
+          </View>
+        ) : (
+          <View style={styles.emptyTrophyCase}>
+            <Text style={styles.emptyTrophyText}>
+              Tu cámara de trofeos espera sus primeros premios.
             </Text>
-            <View style={styles.heatmap}>
-              {monthFocus.map((v, i) => {
-                const intensity = Math.min(1, v / monthMax);
-                const bg =
-                  intensity === 0
-                    ? LUXURY.charcoal
-                    : intensity < 0.34
-                      ? `${LUXURY.neon}33`
-                      : intensity < 0.67
-                        ? `${LUXURY.gold}88`
-                        : LUXURY.gold;
-                return <View key={i} style={[styles.heatCell, { backgroundColor: bg }]} />;
-              })}
-            </View>
-          </Animated.View>
+            <Text style={styles.emptyTrophySubtext}>
+              Cada conquista épica merece ser inmortalizada. Sigue luchando y
+              tus trofeos llegarán.
+            </Text>
+          </View>
         )}
+
+        {/* Recent Triumphs */}
+        {recentTriumphs.length > 0 ? (
+          <View style={styles.triumphsSection}>
+            <Text style={styles.sectionTitle}>TRIUNFOS RECENTES</Text>
+            <View style={styles.triumphsList}>
+              {recentTriumphs.map((triumph, index) => (
+                <View key={triumph.id} style={styles.triumphCard}>
+                  <Animated.View style={gloryPulseStyle}>
+                    <View style={styles.triumphPulseContainer}>
+                      <Text style={styles.triumphPulseText}>⚡</Text>
+                    </View>
+                  </Animated.View>
+                  <View style={styles.triumphContent}>
+                    <Text style={styles.triumphTitle}>{triumph.title}</Text>
+                    <Text style={styles.triumphDescription}>
+                      {triumph.description}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+            {recentTriumphs.length >= 3 && (
+              <Pressable
+                style={styles.viewAllTriumphs}
+                onPress={() => {
+                  setTriumphToSave({
+                    title: "¿Qué triunfo reciente quieres celebrar?",
+                    description:
+                      "Describe tu victoria para inmortalizarla en el salón de los campeones",
+                  });
+                }}
+              >
+                <Text style={styles.viewAllText}>
+                  Añadir un nuevo triunfo →
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        ) : (
+          <View style={styles.emptyTriumphs}>
+            <Text style={styles.emptyTriumphsText}>
+              Aún no hay triunfos registrados.
+            </Text>
+            <Text style={styles.emptyTriumphsSubtext}>
+              Cada acto de voluntad es un triunfo esperando ser reconocido.
+              Comienza tu jornada de victorias hoy.
+            </Text>
+          </View>
+        )}
+
+        {/* Call to Action: Record New Triumph */}
+        <View style={styles.ctaSection}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.triumphCta,
+              pressed && styles.triumphCtaPressed,
+            ]}
+            onPress={() => {
+              setTriumphToSave({
+                title: "Nuevo triunfo épico",
+                description:
+                  "Describe tu victoria para inmortalizarla en el salón de los campeones",
+              });
+            }}
+          >
+            <View style={styles.ctaIconContainer}>
+              <Text style={styles.ctaIconText}>📜</Text>
+            </View>
+            <View style={styles.ctaTextContainer}>
+              <Text style={styles.ctaEyebrow}>INMORTALIZAR TRIUNFO</Text>
+              <Text style={styles.ctaLabel}>
+                Registra tu próxima victoria legendaria
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+
+        {/* Footer Wisdom */}
+        <View style={styles.footerContainer}>
+          <Text style={styles.footerText}>
+            VÉRTICE. Donde los guerreros se convierten en inmortales.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -348,317 +331,294 @@ export default function VaultScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: LUXURY.ink },
-  header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  eyebrow: {
-    color: LUXURY.ash,
-    fontSize: 11,
-    letterSpacing: 1.6,
-    fontWeight: "800",
-    marginBottom: 6,
-  },
-  title: {
-    color: LUXURY.snow,
-    fontSize: 32,
-    fontWeight: "900",
-    letterSpacing: 0.3,
-  },
-  subtitle: {
-    color: LUXURY.goldSoft,
-    fontSize: 15,
-    fontWeight: "700",
-    marginTop: 4,
-    letterSpacing: 0.4,
-  },
-  emblem: {
-    width: 68,
-    height: 68,
-    borderRadius: 24,
-    backgroundColor: LUXURY.graphite,
+  championHeader: {
     alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: `${LUXURY.gold}55`,
-    shadowColor: LUXURY.gold,
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
+    marginBottom: 24,
+    paddingHorizontal: 20,
   },
-  emblemIcon: {
-    color: LUXURY.goldSoft,
+  championInfo: {
+    alignItems: "center",
+  },
+  championName: {
+    color: LUXURY.gold,
     fontSize: 28,
-  },
-  summaryCard: {
-    backgroundColor: LUXURY.graphite,
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 22,
-    borderWidth: 1,
-    borderColor: `${LUXURY.gold}22`,
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 18,
-  },
-  summaryPill: {
-    flex: 1,
-    minWidth: "46%",
-    backgroundColor: LUXURY.obsidian,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-  },
-  summaryValue: {
-    fontSize: 22,
     fontWeight: "900",
-  },
-  summaryLabel: {
-    color: LUXURY.ash,
-    fontSize: 11,
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  quoteRow: {
-    backgroundColor: LUXURY.obsidian,
-    borderRadius: 14,
-    padding: 14,
-  },
-  quoteText: {
-    color: LUXURY.pearl,
-    fontSize: 13,
-    lineHeight: 19,
-    fontStyle: "italic",
-    fontWeight: "500",
-  },
-  tabRow: {
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: 18,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: LUXURY.graphite,
-    borderRadius: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  tabActive: {
-    backgroundColor: `${LUXURY.gold}22`,
-    borderColor: `${LUXURY.gold}55`,
-  },
-  tabText: {
-    color: LUXURY.ash,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  tabTextActive: {
-    color: LUXURY.goldSoft,
-    fontWeight: "800",
-  },
-  section: { gap: 10 },
-  rankRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: LUXURY.graphite,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: LUXURY.charcoal,
-    opacity: 0.6,
-  },
-  rankRowUnlocked: { opacity: 1 },
-  rankRowCurrent: {
-    borderColor: `${LUXURY.gold}55`,
-    backgroundColor: `${LUXURY.gold}11`,
-  },
-  rankIcon: { fontSize: 22, color: LUXURY.stone, fontWeight: "800" },
-  rankIconUnlocked: { color: LUXURY.goldSoft },
-  rankTitle: {
-    color: LUXURY.ash,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  rankTitleUnlocked: { color: LUXURY.snow },
-  rankXp: { color: LUXURY.ash, fontSize: 11, marginTop: 3, fontWeight: "500" },
-  rankBadge: {
-    backgroundColor: LUXURY.charcoal,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-  },
-  rankBadgeUnlocked: { backgroundColor: `${LUXURY.gold}22` },
-  rankBadgeText: { color: LUXURY.ash, fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
-  rankBadgeTextUnlocked: { color: LUXURY.goldSoft },
-  achievementsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  achievementCard: {
-    width: "48%",
-    backgroundColor: LUXURY.graphite,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: `${LUXURY.gold}22`,
-  },
-  achievementLocked: {
-    borderColor: LUXURY.charcoal,
-    opacity: 0.72,
-  },
-  achievementIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: LUXURY.obsidian,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-    borderWidth: 1,
-  },
-  achievementIconText: {
-    color: LUXURY.ash,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  achievementIconTextActive: { color: LUXURY.goldSoft },
-  achievementTitle: {
-    color: LUXURY.snow,
-    fontSize: 14,
-    fontWeight: "800",
-    lineHeight: 18,
+    letterSpacing: -1,
     marginBottom: 4,
   },
-  achievementDesc: {
-    color: LUXURY.mist,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "500",
+  championTitle: {
+    color: LUXURY.pearl,
+    fontSize: 16,
+    fontWeight: "600",
     marginBottom: 12,
   },
-  achievementTier: {
-    backgroundColor: LUXURY.charcoal,
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  achievementTierUnlocked: { backgroundColor: `${LUXURY.gold}22` },
-  achievementTierText: { color: LUXURY.ash, fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
-  achievementTierTextUnlocked: { color: LUXURY.goldSoft },
-  victoryCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: LUXURY.graphite,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: `${LUXURY.gold}22`,
-  },
-  victoryIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 18,
-    backgroundColor: `${LUXURY.gold}22`,
+  championEmblem: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
   },
-  victoryIconText: { color: LUXURY.goldSoft, fontSize: 22, fontWeight: "900" },
-  victoryTitle: {
-    color: LUXURY.snow,
-    fontSize: 15,
+  championIcon: {
+    fontSize: 36,
     fontWeight: "800",
-    marginBottom: 3,
   },
-  victoryDesc: {
-    color: LUXURY.mist,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "500",
-    marginBottom: 6,
+  metricsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 24,
   },
-  victoryDate: { color: LUXURY.ash, fontSize: 10, fontWeight: "600" },
-  victoryChip: {
-    backgroundColor: LUXURY.obsidian,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  metricsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
   },
-  victoryValue: {
-    color: LUXURY.goldSoft,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  emptyVictories: {
+  metricCard: {
+    flex: 1,
+    minWidth: 80,
     backgroundColor: LUXURY.graphite,
-    borderRadius: 22,
-    padding: 24,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
   },
-  emptyVictoriesIcon: { color: LUXURY.ash, fontSize: 28, marginBottom: 12 },
-  emptyVictoriesTitle: {
-    color: LUXURY.snow,
-    fontSize: 16,
-    fontWeight: "800",
-    marginBottom: 6,
-  },
-  emptyVictoriesHint: {
+  metricLabel: {
     color: LUXURY.ash,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 10,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  metricValue: {
+    color: LUXURY.gold,
+    fontSize: 24,
+    fontWeight: "800",
     textAlign: "center",
   },
-  statsGrid: {
+  glorySection: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    color: LUXURY.gold,
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginBottom: 12,
+    textAlign: "left",
+  },
+  gloryTrackContainer: {
+    width: "100%",
+    height: 12,
+    backgroundColor: LUXURY.slate,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  gloryTrack: {
+    height: "100%",
+  },
+  gloryFill: {
+    height: "100%",
+  },
+  gloryLabelContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingHorizontal: 12,
+  },
+  gloryLabel: {
+    color: LUXURY.pearl,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  glorySubtitle: {
+    color: LUXURY.mist,
+    fontSize: 12,
+  },
+  trophySection: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  trophyCaseContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 22,
+    gap: 12,
+    justifyContent: "center",
   },
-  statBox: {
-    width: "48%",
+  trophyDisplay: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 80,
+    height: 100,
+  },
+  trophyIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: `${LUXURY.gold}33`,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  trophyIconText: {
+    fontSize: 24,
+    fontWeight: "800",
+  },
+  trophyInfo: {
+    alignItems: "center",
+  },
+  trophyName: {
+    color: LUXURY.snow,
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  trophyDescription: {
+    color: LUXURY.mist,
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  emptyTrophyCase: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
     backgroundColor: LUXURY.graphite,
-    borderRadius: 18,
+    borderRadius: 20,
+  },
+  emptyTrophyText: {
+    color: LUXURY.pearl,
+    fontSize: 18,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  emptyTrophySubtext: {
+    color: LUXURY.mist,
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  triumphsSection: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  triumphsList: {
+    gap: 16,
+  },
+  triumphCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: LUXURY.charcoal,
   },
-  statValue: {
+  triumphPulseContainer: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: `${LUXURY.gold}18`,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  triumphPulseText: {
+    color: LUXURY.gold,
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  triumphContent: {
+    flex: 1,
+  },
+  triumphTitle: {
     color: LUXURY.snow,
-    fontSize: 20,
-    fontWeight: "900",
+    fontSize: 16,
+    fontWeight: "600",
     marginBottom: 4,
   },
-  statLabel: {
-    color: LUXURY.ash,
-    fontSize: 11,
-    fontWeight: "600",
-    lineHeight: 14,
-  },
-  heatmapLabel: {
+  triumphDescription: {
     color: LUXURY.mist,
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  emptyTriumphs: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 20,
+  },
+  emptyTriumphsText: {
+    color: LUXURY.pearl,
+    fontSize: 20,
     fontWeight: "700",
+    textAlign: "center",
     marginBottom: 12,
   },
-  heatmap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 4,
+  emptyTriumphsSubtext: {
+    color: LUXURY.mist,
+    fontSize: 16,
+    textAlign: "center",
+    lineHeight: 22,
   },
-  heatCell: {
-    width: `${(100 - 22) / 7}%`,
-    aspectRatio: 1,
-    borderRadius: 6,
-    minWidth: 32,
-    height: 32,
+  viewAllTriumphs: {
+    marginTop: 16,
+    alignItems: "center",
+  },
+  viewAllText: {
+    color: LUXURY.gold,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  ctaSection: {
+    marginHorizontal: 20,
+    marginBottom: 32,
+  },
+  triumphCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: LUXURY.gold,
+    borderRadius: 50,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    ...SHADOWS.gold,
+  },
+  triumphCtaPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+  ctaIconContainer: {
+    marginRight: 12,
+  },
+  ctaIconText: {
+    fontSize: 20,
+  },
+  ctaTextContainer: {
+    flex: 1,
+  },
+  ctaEyebrow: {
+    color: LUXURY.ink,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  ctaLabel: {
+    color: LUXURY.ink,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  footerContainer: {
+    marginHorizontal: 20,
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+  footerText: {
+    color: LUXURY.pearl,
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

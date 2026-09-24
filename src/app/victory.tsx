@@ -136,7 +136,7 @@ export default function VictoryScreen() {
             <Text style={[styles.icon, { color: accentColor }]}>{icon}</Text>
           </Animated.View>
 
-          <Text style={styles.title}>{title}</Text>
+          <Text style={[styles.title, { color: accentColor }]}>{title}</Text>
           <Text style={styles.description}>{description}</Text>
 
           <View style={[styles.value, { backgroundColor: `${accentColor}1A` }]}>
@@ -145,11 +145,11 @@ export default function VictoryScreen() {
             </Text>
             <Text style={[styles.valueLabel, { color: accentColor }]}>
               {type === "streak"
-                ? "DÍAS ININTERRUMPIDOS"
+                ? "DÍAS DE DOMINIO"
                 : type === "focus"
-                  ? "MINUTOS DE FOCO"
+                  ? "MINUTOS DE EJECUCIÓN"
                   : type === "mission"
-                    ? "MISIONES"
+                    ? "CONQUISTAS"
                     : type === "mindset"
                       ? "FORTALEZA MENTAL"
                       : "PUNTOS DE EGO"}
@@ -166,13 +166,12 @@ export default function VictoryScreen() {
           onPress={() => router.back()}
         >
           <Text style={styles.buttonText}>
-            {saved ? "VICTORIA GUARDADA · VOLVER →" : "VOLVER →"}
+            {saved ? "VICTORIA SELLADA · VOLVER →" : "VOLVER →"}
           </Text>
         </Pressable>
 
         <Text style={styles.hint}>
-          Esta tarjeta vive ahora en El Espejo. Revísala cuando te falte
-          motivación.
+          Esta victoria es la prueba de que tu voluntad es superior.
         </Text>
       </Animated.View>
     </View>

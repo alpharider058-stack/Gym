@@ -12,7 +12,9 @@
       "bundleIdentifier": "com.alpharider058.gym",
       "supportsTablet": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserNotificationUsageDescription": "VÉRTICE te enviará un recordatorio diario para que nadie te pare.",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -22,7 +24,12 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/pulse-logo.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS",
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "output": "static",
@@ -38,7 +45,14 @@
           "imageWidth": 180
         }
       ],
-      "expo-widgets"
+      "expo-widgets",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/pulse-logo.png",
+          "color": "#000000"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LUXURY } from "@/constants/theme";
 import {
   STOIC_QUOTES,
+  getDateKey,
   randomStoicQuote,
   readAllProgress,
   saveDailyProgress,
@@ -80,13 +81,14 @@ export default function ResilienceScreen() {
     );
   }, []);
 
-  const load = async () => {
-    const todayKey = new Date().toISOString().slice(0, 10);
+  const load = useCallback(async () => {
+    const todayKey = getDateKey();
     const byDay = await readAllProgress();
     const today = byDay[todayKey] ?? {
       date: todayKey,
       missionIds: [],
       completedIds: [],
+      completed: [],
       focusMinutes: 0,
       discomfortAvg: 0,
       journalEntry: "",
@@ -100,7 +102,7 @@ export default function ResilienceScreen() {
     const week = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
-      const key = d.toISOString().slice(0, 10);
+      const key = getDateKey(d);
       return {
         day: ["D", "L", "M", "X", "J", "V", "S"][d.getDay()],
         level: byDay[key]?.discomfortAvg ?? 0,
@@ -112,11 +114,13 @@ export default function ResilienceScreen() {
     setAvgDiscomfort(
       values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0,
     );
-  };
+  }, []);
 
-  useFocusEffect(() => {
-    load();
-  });
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const saveDiscomfort = async (level: number) => {
     setTodayDiscomfort(level);

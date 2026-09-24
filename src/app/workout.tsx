@@ -76,6 +76,7 @@ export default function WorkoutScreen() {
   const [restExerciseId, setRestExerciseId] = useState<string | null>(null);
   const [restRemaining, setRestRemaining] = useState(0);
   const liveActivity = useRef<LiveActivity<RoutineActivityProps> | null>(null);
+  const finishing = useRef(false);
 
   useEffect(() => {
     const routineId = Array.isArray(params.routineId)
@@ -260,18 +261,25 @@ export default function WorkoutScreen() {
     router.back();
   };
   const finish = async () => {
-    if (!routine) return;
+    if (!routine || finishing.current) return;
     const completed = items.filter((item) => item.done).length;
     if (!completed) return;
+    finishing.current = true;
     const completedItems = items.filter((item) => item.done);
+    const getReps = (item: WorkoutExercise) => {
+      const value = String(item.reps ?? "10");
+      const reps = Number.parseInt(value.match(/\d+/)?.[0] ?? "10", 10);
+      return Math.max(0, Math.min(100, reps));
+    };
+    const getSets = (item: WorkoutExercise) =>
+      Math.max(0, Math.min(30, Number(item.sets) || 3));
+    const getWeight = (item: WorkoutExercise) =>
+      Math.max(0, Number(item.weightValue.replace(",", ".")) || 0);
     const muscleVolumes = completedItems.reduce<Record<string, number>>(
       (volumes, item) => {
         const muscle = item.muscle || "Otros";
         volumes[muscle] =
-          (volumes[muscle] || 0) +
-          (Number(item.weightValue) || 0) *
-            Number(item.reps || 10) *
-            Number(item.sets || 3);
+          (volumes[muscle] || 0) + getWeight(item) * getReps(item) * getSets(item);
         return volumes;
       },
       {},
@@ -280,7 +288,7 @@ export default function WorkoutScreen() {
       .map((item) => ({
         exercise: item.name,
         value: Math.round(
-          (Number(item.weightValue) || 0) * (1 + Number(item.reps || 10) / 30),
+          getWeight(item) * (1 + getReps(item) / 30),
         ),
       }))
       .filter((record) => record.value > 0);
@@ -290,29 +298,34 @@ export default function WorkoutScreen() {
     const rirValues = completedItems
       .map((item) => Number(item.rirValue))
       .filter((value) => value >= 0);
-    await saveTrainingLog({
-      id: `${routine.id}-${new Date().toISOString().slice(0, 10)}`,
-      date: new Date().toISOString(),
-      routineId: routine.id,
-      routineName: routine.name,
-      sets: completed * 3,
-      volumeKg: items
-        .filter((item) => item.done)
-        .reduce(
-          (total, item) => total + (Number(item.weightValue) || 0) * 3,
+    const finishedAt = new Date();
+    const dateKey = `${finishedAt.getFullYear()}-${String(finishedAt.getMonth() + 1).padStart(2, "0")}-${String(finishedAt.getDate()).padStart(2, "0")}`;
+    try {
+      await saveTrainingLog({
+        id: `${routine.id}-${dateKey}-${finishedAt.getTime()}-${Math.random().toString(36).slice(2, 7)}`,
+        date: finishedAt.toISOString(),
+        routineId: routine.id,
+        routineName: routine.name,
+        sets: completedItems.reduce((total, item) => total + getSets(item), 0),
+        volumeKg: completedItems.reduce(
+          (total, item) => total + getWeight(item) * getReps(item) * getSets(item),
           0,
         ),
-      minutes: Math.max(10, completed * 8),
-      xp: 25 + completed * 10,
-      muscleVolumes,
-      oneRmRecords,
-      averageRpe: rpeValues.length
-        ? rpeValues.reduce((sum, value) => sum + value, 0) / rpeValues.length
-        : undefined,
-      averageRir: rirValues.length
-        ? rirValues.reduce((sum, value) => sum + value, 0) / rirValues.length
-        : undefined,
-    });
+        minutes: Math.max(10, completed * 8),
+        xp: 25 + completed * 10,
+        muscleVolumes,
+        oneRmRecords,
+        averageRpe: rpeValues.length
+          ? rpeValues.reduce((sum, value) => sum + value, 0) / rpeValues.length
+          : undefined,
+        averageRir: rirValues.length
+          ? rirValues.reduce((sum, value) => sum + value, 0) / rirValues.length
+          : undefined,
+      });
+    } catch (error) {
+      finishing.current = false;
+      throw error;
+    }
     if (
       Platform.OS === "ios" &&
       Constants.executionEnvironment !== ExecutionEnvironment.StoreClient &&

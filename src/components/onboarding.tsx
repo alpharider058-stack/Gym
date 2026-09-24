@@ -1,360 +1,473 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import Animated, { FadeIn, FadeInRight, useSharedValue, withSpring, useAnimatedStyle } from "react-native-reanimated";
+import { useMemo, useState } from "react";
+import {
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import Animated, {
+    FadeInDown,
+    FadeInRight,
+    FadeOutLeft,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { LUXURY } from "@/constants/theme";
+import { LUXURY, SHADOWS } from "@/constants/theme";
+import {
+    getSettings,
+    saveProfile,
+    saveSettings,
+    type WarriorProfile,
+} from "@/lib/forge-storage";
+import { updateScheduleFromSettings } from "@/lib/notifications";
 
-export type WarriorProfile = {
-  name: string;
-  mantra: string;
-  focusAmbition: string;
-  startingLevel: string;
-  createdAt: string;
+type OnboardingProps = {
+  onFinished: () => void;
 };
 
-type Props = { onComplete: (profile: WarriorProfile) => void };
+const STEPS = 3;
 
-const options = {
-  ambition: [
-    "Dominar mi mente y mi cuerpo",
-    "Construir hábitos invencibles",
-    "Alcanzar mi mejor versión",
-    "Crear un legado imborrable",
-  ],
-  level: [
-    "Recién empiezo, quiero el fuego",
-    "Llevo tiempo, pero me falta constancia",
-    "Ya soy disciplinado, busco el siguiente nivel",
-    "Soy una máquina, quiero el VÉRTICE",
-  ],
-  mantra: [
-    "El dolor es temporal, la mediocridad eterna",
-    "Hoy haré lo que otros no hacen",
-    "Mi voluntad es mi arma",
-    "Cada minuto cuenta, cada acción forja",
-  ],
-};
-
-export function Onboarding({ onComplete }: Props) {
+export default function Onboarding({ onFinished }: OnboardingProps) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
-  const [mantra, setMantra] = useState("");
-  const [ambition, setAmbition] = useState("");
-  const [level, setLevel] = useState("");
-  const pressed = useSharedValue(1);
-  const pressedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pressed.value }],
+  const [notifHour, setNotifHour] = useState(6);
+  const [notifMinute, setNotifMinute] = useState(30);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const pressScale = useSharedValue(1);
+  const ctaStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
   }));
-  const values = [name, ambition, level, mantra];
-  const labels = [
-    "¿Quién eres?",
-    "¿Qué ambición arde en ti?",
-    "¿Dónde estás ahora?",
-    "¿Cuál es tu mantra de batalla?",
-  ];
-  const subtitles = [
-    "Tu nombre es la primera piedra de tu fortaleza.",
-    "La ambición da dirección a la disciplina.",
-    "La honestidad es el origen del crecimiento real.",
-    "Repite estas palabras todos los días antes de ceder.",
-  ];
-  const canContinue = values[step].trim().length > 0;
 
-  const next = () => {
-    if (!canContinue) return;
-    if (step === 3)
-      onComplete({
-        name: name.trim(),
-        mantra,
-        focusAmbition: ambition,
-        startingLevel: level,
-        createdAt: new Date().toISOString(),
-      });
-    else setStep((s) => s + 1);
+  const canAdvance = useMemo(() => {
+    if (step === 0) return name.trim().length >= 2;
+    if (step === 1) return true;
+    if (step === 2) return reason.trim().length >= 6;
+    return false;
+  }, [step, name, reason]);
+
+  const next = async () => {
+    if (!canAdvance) return;
+    pressScale.value = withSpring(0.95);
+    setTimeout(() => (pressScale.value = withSpring(1)), 120);
+    if (step < STEPS - 1) {
+      setStep(step + 1);
+      return;
+    }
+    setSaving(true);
+    const profile: WarriorProfile = {
+      name: name.trim(),
+      createdAt: Date.now(),
+      onboarded: true,
+      defaultReason: reason.trim(),
+    };
+    await saveProfile(profile);
+    const settings = await getSettings();
+    settings.notifEnabled = notifEnabled;
+    settings.notifHour = notifHour;
+    settings.notifMinute = notifMinute;
+    await saveSettings(settings);
+    if (notifEnabled) void updateScheduleFromSettings(true);
+    setSaving(false);
+    onFinished();
   };
 
-  const onPressIn = () => {
-    pressed.value = withSpring(0.96, { damping: 18 });
-  };
-  const onPressOut = () => {
-    pressed.value = withSpring(1, { damping: 12 });
-  };
+  const hourInc = (delta: number) =>
+    setNotifHour((hour) => (hour + delta + 24) % 24);
+  const minuteInc = (delta: number) =>
+    setNotifMinute((minute) => (minute + delta + 60) % 60);
 
   return (
-    <View style={styles.root}>
-      <Animated.View entering={FadeIn.duration(700)} style={styles.brand}>
-        <View style={styles.brandMark}>
-          <Text style={styles.brandMarkText}>V</Text>
-          <View style={styles.brandGlow} />
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={10}
+      >
+        <View style={styles.header}>
+          <Text style={styles.logo}>VÉRTICE</Text>
+          <View style={styles.dotsRow}>
+            {Array.from({ length: STEPS }).map((_, idx) => (
+              <View
+                key={idx}
+                style={[styles.dot, idx === step && styles.dotActive]}
+              />
+            ))}
+          </View>
         </View>
-        <Text style={styles.brandName}>VÉRTICE</Text>
-        <Text style={styles.brandTag}>FORJA TU DISCIPLINA</Text>
-      </Animated.View>
-      <View style={styles.progressTrack}>
-        <Animated.View
-          style={[
-            styles.progressFill,
-            { width: `${((step + 1) / 4) * 100}%` },
-          ]}
-        />
-      </View>
-      <Animated.View
-        key={step}
-        entering={FadeInRight.duration(500)}
-        style={styles.panel}
-      >
-        <Text style={styles.step}>FASE {step + 1} · 4</Text>
-        <Text style={styles.title}>{labels[step]}</Text>
-        <Text style={styles.subtitle}>{subtitles[step]}</Text>
-        {step === 0 ? (
-          <TextInput
-            autoFocus
-            value={name}
-            onChangeText={setName}
-            placeholder="Escribe tu nombre"
-            placeholderTextColor={LUXURY.ash}
-            style={styles.input}
-            selectionColor={LUXURY.gold}
-          />
-        ) : step === 3 ? (
-          <View style={styles.options}>
-            {options.mantra.map((option, idx) => {
-              const selected = mantra === option;
-              return (
-                <Pressable
-                  key={option}
-                  onPress={() => setMantra(option)}
-                  style={[styles.option, selected && styles.optionSelected]}
-                  onPressIn={onPressIn}
-                  onPressOut={onPressOut}
+
+        <View style={styles.body}>
+          {step === 0 && (
+            <Animated.View
+              key="s0"
+              entering={FadeInDown.duration(500)}
+              exiting={FadeOutLeft.duration(250)}
+              style={styles.step}
+            >
+              <Text style={styles.eyebrow}>PASO 1 · IDENTIDAD</Text>
+              <Text style={styles.title}>¿Quién eres?</Text>
+              <Text style={styles.subtitle}>
+                Un nombre. Una marca. A partir de ahora será la bandera de tu
+                racha.
+              </Text>
+              <TextInput
+                autoFocus
+                value={name}
+                onChangeText={setName}
+                placeholder="Tu nombre, tu guerra..."
+                placeholderTextColor={LUXURY.ash}
+                style={styles.input}
+              />
+            </Animated.View>
+          )}
+
+          {step === 1 && (
+            <Animated.View
+              key="s1"
+              entering={FadeInRight.duration(450)}
+              exiting={FadeOutLeft.duration(250)}
+              style={styles.step}
+            >
+              <Text style={styles.eyebrow}>PASO 2 · HORA DEL ATAQUE</Text>
+              <Text style={styles.title}>¿Cuándo recibes tu golpe?</Text>
+              <Text style={styles.subtitle}>
+                Una notificación diaria. Un mensaje que nadie más te dirá.
+                Actívala y elige la hora exacta.
+              </Text>
+              <View style={styles.toggleRow}>
+                <Text
+                  style={[
+                    styles.toggleLabel,
+                    !notifEnabled && styles.toggleLabelOff,
+                  ]}
                 >
-                  <View style={styles.optionIndex}>
-                    <Text style={styles.optionIndexText}>0{idx + 1}</Text>
-                  </View>
-                  <Text
-                    style={[styles.optionText, selected && styles.optionTextSelected]}
-                  >
-                    {option}
-                  </Text>
-                  <View style={[styles.radio, selected && styles.radioSelected]}>
-                    {selected && <View style={styles.radioInner} />}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.options}>
-            {(step === 1 ? options.ambition : options.level).map((option, idx) => {
-              const selected = values[step] === option;
-              return (
+                  Notificación diaria
+                </Text>
                 <Pressable
-                  key={option}
-                  onPress={() => (step === 1 ? setAmbition(option) : setLevel(option))}
-                  style={[styles.option, selected && styles.optionSelected]}
-                  onPressIn={onPressIn}
-                  onPressOut={onPressOut}
+                  onPress={() => setNotifEnabled((enabled) => !enabled)}
+                  style={[
+                    styles.toggleSwitch,
+                    notifEnabled && styles.toggleSwitchOn,
+                  ]}
                 >
-                  <View style={styles.optionIndex}>
-                    <Text style={styles.optionIndexText}>0{idx + 1}</Text>
-                  </View>
-                  <Text
-                    style={[styles.optionText, selected && styles.optionTextSelected]}
-                  >
-                    {option}
-                  </Text>
-                  <View style={[styles.radio, selected && styles.radioSelected]}>
-                    {selected && <View style={styles.radioInner} />}
-                  </View>
+                  <View
+                    style={[
+                      styles.toggleThumb,
+                      notifEnabled && { transform: [{ translateX: 26 }] },
+                    ]}
+                  />
                 </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </Animated.View>
+              </View>
+              <View style={styles.timeRow}>
+                <TimePicker
+                  label="Hora"
+                  value={notifHour}
+                  disabled={!notifEnabled}
+                  onInc={() => hourInc(1)}
+                  onDec={() => hourInc(-1)}
+                />
+                <Text style={styles.timeColon}>:</Text>
+                <TimePicker
+                  label="Minuto"
+                  value={notifMinute}
+                  disabled={!notifEnabled}
+                  onInc={() => minuteInc(5)}
+                  onDec={() => minuteInc(-5)}
+                />
+              </View>
+            </Animated.View>
+          )}
+
+          {step === 2 && (
+            <Animated.View
+              key="s2"
+              entering={FadeInRight.duration(450)}
+              exiting={FadeOutLeft.duration(250)}
+              style={styles.step}
+            >
+              <Text style={styles.eyebrow}>PASO 3 · EL MOTIVO</Text>
+              <Text style={styles.title}>¿Para qué te bloqueas?</Text>
+              <Text style={styles.subtitle}>
+                Cada sesión de enfoque recuerda este motivo. Escríbelo bien:
+                deberá convencerte cuando estés a punto de rendirte.
+              </Text>
+              <TextInput
+                autoFocus
+                value={reason}
+                onChangeText={setReason}
+                placeholder="Construir la vida que merezco. Basta de mediocridad."
+                placeholderTextColor={LUXURY.ash}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                style={[styles.input, styles.textarea]}
+              />
+              <Text style={styles.hint}>
+                Ej: "No ser el cobarde de mis propios sueños."
+              </Text>
+            </Animated.View>
+          )}
+        </View>
+
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
+          <Pressable
+            disabled={step === 0}
+            onPress={() => setStep(step - 1)}
+            style={[styles.back, step === 0 && styles.backDisabled]}
+          >
+            <Text
+              style={[styles.backText, step === 0 && styles.backTextDisabled]}
+            >
+              Atrás
+            </Text>
+          </Pressable>
+          <Pressable
+            disabled={!canAdvance || saving}
+            onPress={next}
+            style={{ flex: 1, marginLeft: 14 }}
+          >
+            <Animated.View
+              style={[styles.cta, ctaStyle, !canAdvance && styles.ctaDisabled]}
+            >
+              <Text style={styles.ctaText}>
+                {saving
+                  ? "Preparando..."
+                  : step < STEPS - 1
+                    ? "Siguiente"
+                    : "EMPEZAR VÉRTICE"}
+              </Text>
+            </Animated.View>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+function TimePicker({
+  label,
+  value,
+  disabled,
+  onInc,
+  onDec,
+}: {
+  label: string;
+  value: number;
+  disabled: boolean;
+  onInc: () => void;
+  onDec: () => void;
+}) {
+  return (
+    <View style={styles.timeBlock}>
+      <Text style={styles.timeLabel}>{label}</Text>
       <Pressable
-        disabled={!canContinue}
-        onPress={next}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        style={[styles.button, !canContinue && styles.buttonDisabled]}
+        disabled={disabled}
+        onPress={onInc}
+        style={[styles.timeBtn, disabled && styles.timeBtnDisabled]}
       >
-        <Animated.View style={[pressedStyle, { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }]}>
-          <Text style={styles.buttonText}>
-            {step === 3 ? "ENTRAR EN LA FORJA" : "SIGUIENTE"}
-          </Text>
-          <Text style={styles.arrow}>→</Text>
-        </Animated.View>
+        <Text style={styles.timeBtnText}>▲</Text>
+      </Pressable>
+      <View style={[styles.timeValueBox, disabled && styles.timeBoxDisabled]}>
+        <Text style={styles.timeValue}>{String(value).padStart(2, "0")}</Text>
+      </View>
+      <Pressable
+        disabled={disabled}
+        onPress={onDec}
+        style={[styles.timeBtn, disabled && styles.timeBtnDisabled]}
+      >
+        <Text style={styles.timeBtnText}>▼</Text>
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: LUXURY.ink,
-    padding: 24,
-    justifyContent: "center",
-  },
-  brand: { alignItems: "center", marginBottom: 52 },
-  brandMark: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    backgroundColor: LUXURY.graphite,
+  root: { flex: 1, backgroundColor: LUXURY.ink, paddingHorizontal: 24 },
+  header: {
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: `${LUXURY.gold}55`,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
-  brandGlow: {
-    position: "absolute",
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: `${LUXURY.gold}18`,
-    zIndex: -1,
-  },
-  brandMarkText: {
-    color: LUXURY.goldSoft,
-    fontSize: 34,
+  logo: {
+    fontSize: 14,
     fontWeight: "800",
-    letterSpacing: 2,
+    letterSpacing: 6,
+    color: LUXURY.gold,
+    marginBottom: 16,
   },
-  brandName: {
-    color: LUXURY.snow,
-    fontSize: 18,
-    letterSpacing: 8,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  brandTag: {
-    color: LUXURY.ash,
-    fontSize: 10,
-    letterSpacing: 3,
-    fontWeight: "600",
-  },
-  progressTrack: {
-    height: 3,
-    backgroundColor: LUXURY.charcoal,
+  dotsRow: { flexDirection: "row", gap: 8 },
+  dot: {
+    width: 6,
+    height: 6,
     borderRadius: 3,
-    marginBottom: 44,
+    backgroundColor: LUXURY.slate,
+    opacity: 0.5,
   },
-  progressFill: {
-    height: "100%",
+  dotActive: {
+    width: 20,
     backgroundColor: LUXURY.gold,
-    borderRadius: 3,
-    shadowColor: LUXURY.gold,
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
+    opacity: 1,
   },
-  panel: { minHeight: 290 },
-  step: {
-    color: LUXURY.ash,
+  body: { flex: 1, justifyContent: "center" },
+  step: { width: "100%" },
+  eyebrow: {
+    color: LUXURY.mist,
     fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 1.4,
+    letterSpacing: 2,
     marginBottom: 10,
   },
   title: {
-    color: LUXURY.snow,
+    color: "#FFFFFF",
     fontSize: 34,
+    fontWeight: "700",
     lineHeight: 40,
-    fontWeight: "800",
+    marginBottom: 12,
   },
   subtitle: {
     color: LUXURY.mist,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 10,
+    fontSize: 15,
+    lineHeight: 22,
     marginBottom: 28,
   },
   input: {
-    height: 58,
+    height: 56,
     borderRadius: 16,
     backgroundColor: LUXURY.graphite,
-    paddingHorizontal: 18,
-    color: LUXURY.snow,
-    fontSize: 17,
+    color: "#fff",
+    fontSize: 16,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderColor: LUXURY.charcoal,
   },
-  options: { gap: 12 },
-  option: {
-    minHeight: 64,
-    borderRadius: 18,
-    paddingHorizontal: 14,
+  textarea: {
+    height: 130,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  hint: {
+    marginTop: 10,
+    fontSize: 12,
+    color: LUXURY.ash,
+    fontStyle: "italic",
+  },
+  toggleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     backgroundColor: LUXURY.graphite,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
+    marginBottom: 28,
+  },
+  toggleLabel: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  toggleLabelOff: { color: LUXURY.ash },
+  toggleSwitch: {
+    width: 52,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: LUXURY.slate,
+    padding: 3,
+  },
+  toggleSwitchOn: { backgroundColor: LUXURY.gold },
+  toggleThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#fff",
+  },
+  timeRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: LUXURY.charcoal,
-    gap: 12,
-  },
-  optionSelected: {
-    borderColor: LUXURY.gold,
-    backgroundColor: `${LUXURY.gold}14`,
-  },
-  optionIndex: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: LUXURY.charcoal,
-    alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
+    gap: 18,
   },
-  optionIndexText: {
+  timeBlock: { alignItems: "center" },
+  timeLabel: {
     color: LUXURY.ash,
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
+    letterSpacing: 1,
+    marginBottom: 10,
   },
-  optionText: {
-    color: LUXURY.snow,
-    fontSize: 14,
-    fontWeight: "600",
-    flex: 1,
-  },
-  optionTextSelected: { color: LUXURY.goldSoft, fontWeight: "700" },
-  radio: {
-    width: 22,
-    height: 22,
+  timeBtn: {
+    width: 56,
+    height: 40,
     borderRadius: 12,
-    borderWidth: 2,
-    borderColor: LUXURY.stone,
+    backgroundColor: LUXURY.graphite,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
   },
-  radioSelected: { borderColor: LUXURY.gold },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: LUXURY.gold,
-  },
-  button: {
-    minHeight: 58,
+  timeBtnDisabled: { opacity: 0.35 },
+  timeBtnText: { color: LUXURY.pearl, fontSize: 12, fontWeight: "700" },
+  timeValueBox: {
+    width: 100,
+    height: 80,
     borderRadius: 18,
-    backgroundColor: LUXURY.gold,
-    paddingHorizontal: 20,
-    marginTop: 32,
+    backgroundColor: LUXURY.graphite,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: LUXURY.gold,
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
+    ...SHADOWS.card,
   },
-  buttonDisabled: { opacity: 0.28 },
-  buttonText: {
-    color: LUXURY.ink,
+  timeBoxDisabled: { opacity: 0.4 },
+  timeValue: {
+    color: "#FFFFFF",
+    fontSize: 40,
+    fontWeight: "800",
+    letterSpacing: 2,
+  },
+  timeColon: {
+    color: LUXURY.gold,
+    fontSize: 40,
+    fontWeight: "700",
+    marginTop: 26,
+  },
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingTop: 24,
+  },
+  back: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: LUXURY.graphite,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
+  },
+  backDisabled: { opacity: 0.35 },
+  backText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  backTextDisabled: { color: LUXURY.ash },
+  cta: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: LUXURY.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    ...SHADOWS.gold,
+  },
+  ctaDisabled: { opacity: 0.35 },
+  ctaText: {
+    color: "#000",
     fontSize: 15,
     fontWeight: "800",
-    letterSpacing: 1.1,
+    letterSpacing: 0.4,
   },
-  arrow: { color: LUXURY.ink, fontSize: 20, fontWeight: "800" },
 });

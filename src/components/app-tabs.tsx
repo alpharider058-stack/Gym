@@ -17,32 +17,16 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="missions">
-        <NativeTabs.Trigger.Label>Misiones</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/explore.png")}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="resilience">
-        <NativeTabs.Trigger.Label>Resiliencia</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="vault">
+        <NativeTabs.Trigger.Label>Yo</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require("@/assets/images/tabIcons/home.png")}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="coach">
-        <NativeTabs.Trigger.Label>Coach</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/explore.png")}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="vault">
-        <NativeTabs.Trigger.Label>Espejo</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="conquest">
+        <NativeTabs.Trigger.Label>Conquista</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require("@/assets/images/tabIcons/home.png")}
           renderingMode="template"

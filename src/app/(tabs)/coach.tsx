@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,6 +27,7 @@ import {
   getTotalXp,
   randomStoicQuote,
   readAllProgress,
+  RANKS,
   STOIC_QUOTES,
   type WarriorProfile,
 } from "@/lib/forge-storage";
@@ -118,6 +118,22 @@ async function fetchWithRetry(
     }
   }
   throw new Error("No se pudo conectar con el servidor");
+}
+
+function formatCoachPlan(value: unknown): string | null {
+  if (typeof value === "string") return value.trim().slice(0, 12000) || null;
+  if (!value || typeof value !== "object") return null;
+  const weekdays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const lines = Object.entries(value as Record<string, unknown>)
+    .map(([key, day]) => {
+      const index = Number(key);
+      const label = Number.isInteger(index) && index >= 0 && index < 7 ? weekdays[index] : key;
+      if (day === true) return `• ${label}: día de práctica`;
+      if (day === false || day == null) return null;
+      return `• ${label}: ${typeof day === "string" ? day : JSON.stringify(day)}`;
+    })
+    .filter((line): line is string => Boolean(line));
+  return lines.length ? `# Plan semanal\n\n${lines.join("\n")}` : null;
 }
 
 function Option({
@@ -234,7 +250,7 @@ export default function CoachScreen() {
     Promise.all([getTotalXp(), readAllProgress()]).then(([xp, byDay]) => {
       const rank = getRank(xp);
       setRankMeta({
-        level: rank.current.level,
+        level: RANKS.findIndex((item) => item.name === rank.current.name) + 1,
         xp,
         streak: getStreakDays(byDay),
       });
@@ -308,10 +324,8 @@ export default function CoachScreen() {
   };
 
   const generate = async () => {
-    const expoHost = Constants.expoConfig?.hostUri?.split(":")[0];
     const endpoint =
-      process.env.EXPO_PUBLIC_AI_PROXY_URL ||
-      (expoHost ? `http://${expoHost}:8787` : "http://192.168.1.130:8787");
+      process.env.EXPO_PUBLIC_AI_PROXY_URL || "http://127.0.0.1:8787";
     setLoading(true);
     setMessage("");
     setPlan("");
@@ -346,7 +360,9 @@ export default function CoachScreen() {
         );
       }
       const planText =
-        result.plan ?? result.routine?.name ?? generateLocalPlan();
+        formatCoachPlan(result.plan) ??
+        formatCoachPlan(result.routine?.name) ??
+        generateLocalPlan();
       setPlan(planText);
       await AsyncStorage.setItem("vertice-last-plan", planText);
       setMessage("Plan generado y guardado localmente.");

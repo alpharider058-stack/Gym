@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -23,10 +23,14 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LUXURY } from "@/constants/theme";
+import { VictoryCapture } from "@/components/victory-capture";
 import {
   DEFAULT_MISSIONS,
+  getDateKey,
   getMissions,
   getWeeklySummary,
+  readAllProgress,
+  saveMissions,
   toggleMission,
   type Mission,
 } from "@/lib/forge-storage";
@@ -65,6 +69,7 @@ export default function MissionsScreen() {
     useState<Mission["category"]>("mindset");
   const [addingDifficulty, setAddingDifficulty] =
     useState<Mission["difficulty"]>(1);
+  const [victoryPrompt, setVictoryPrompt] = useState<{ missionId: string; action: string } | null>(null);
   const progress = useSharedValue(0);
 
   const nonNegotiableCount = missions.filter((m) => m.nonNegotiable).length;
@@ -84,23 +89,22 @@ export default function MissionsScreen() {
     }));
   }, [missions]);
 
-  const load = async () => {
-    const all = await getMissions();
-    const [progressKey] = new Date().toISOString().split("T");
-    const raw = await (
-      await import("@react-native-async-storage/async-storage")
-    ).default.getItem("vertice-daily-progress");
-    const byDay: Record<string, { completedIds?: string[] }> = raw
-      ? JSON.parse(raw)
-      : {};
+  const load = useCallback(async () => {
+    const [all, byDay, summary] = await Promise.all([
+      getMissions(),
+      readAllProgress(),
+      getWeeklySummary(),
+    ]);
     setMissions(all);
-    setCompletedIds(byDay[progressKey]?.completedIds ?? []);
-    setWeekly(await getWeeklySummary());
-  };
+    setCompletedIds(byDay[getDateKey()]?.completedIds ?? []);
+    setWeekly(summary);
+  }, []);
 
-  useFocusEffect(() => {
-    load();
-  });
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const target = missions.length
     ? completedIds.filter(
@@ -117,17 +121,28 @@ export default function MissionsScreen() {
   }));
 
   const onToggle = async (id: string) => {
+    const result = await toggleMission(id);
     setCompletedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      result.completed
+        ? [...new Set([...prev, id])]
+        : prev.filter((x) => x !== id),
     );
-    await toggleMission(id);
+    if (result.completed) {
+      const mission = missions.find((item) => item.id === id);
+      setVictoryPrompt({
+        missionId: id,
+        action: mission ? `He completado: ${mission.text}` : "He completado una misión.",
+      });
+    } else {
+      setVictoryPrompt((current) => current?.missionId === id ? null : current);
+    }
   };
 
   const addCustomMission = async () => {
     const text = newMission.trim();
     if (!text) return;
     const next: Mission = {
-      id: `custom_${Date.now()}`,
+      id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       text,
       category: addingCategory,
       difficulty: addingDifficulty,
@@ -137,9 +152,7 @@ export default function MissionsScreen() {
     const list = [...missions, next];
     setMissions(list);
     setNewMission("");
-    await (
-      await import("@react-native-async-storage/async-storage")
-    ).default.setItem("vertice-missions", JSON.stringify(list));
+    await saveMissions(list);
   };
 
   const allDone =
@@ -209,6 +222,16 @@ export default function MissionsScreen() {
             </Text>
           </View>
         </Animated.View>
+
+        {victoryPrompt && (
+          <View style={{ marginBottom: 20 }}>
+            <VictoryCapture
+              key={victoryPrompt.missionId}
+              initialAction={victoryPrompt.action}
+              onDismiss={() => setVictoryPrompt(null)}
+            />
+          </View>
+        )}
 
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}

@@ -8,6 +8,11 @@ import { scheduleOnRN } from "react-native-worklets";
 const INITIAL_SCALE_FACTOR = Dimensions.get("screen").height / 90;
 const DURATION = 600;
 
+// Smoother easing functions for fluid animations
+const EASE_IN_OUT = Easing.inOut(Easing.cubic);
+const EASE_OUT = Easing.out(Easing.cubic);
+const EASE_IN = Easing.in(Easing.cubic);
+
 export function AnimatedSplashOverlay() {
   const [animate, setAnimate] = useState(false);
   const [visible, setVisible] = useState(true);
@@ -24,12 +29,12 @@ export function AnimatedSplashOverlay() {
     },
     70: {
       opacity: 0,
-      easing: Easing.elastic(0.7),
+      easing: EASE_IN_OUT,
     },
     100: {
       opacity: 0,
       transform: [{ scale: 1 }],
-      easing: Easing.elastic(0.7),
+      easing: EASE_IN_OUT,
     },
   });
 
@@ -72,7 +77,7 @@ const keyframe = new Keyframe({
   },
   100: {
     transform: [{ scale: 1 }],
-    easing: Easing.elastic(0.7),
+    easing: EASE_IN_OUT,
   },
 });
 
@@ -84,12 +89,12 @@ const logoKeyframe = new Keyframe({
   40: {
     transform: [{ scale: 1.3 }],
     opacity: 0,
-    easing: Easing.elastic(0.7),
+    easing: EASE_IN_OUT,
   },
   100: {
     opacity: 1,
     transform: [{ scale: 1 }],
-    easing: Easing.elastic(0.7),
+    easing: EASE_IN_OUT,
   },
 });
 
@@ -106,7 +111,7 @@ export function AnimatedIcon() {
   return (
     <View style={styles.iconContainer}>
       <Animated.View
-        entering={glowKeyframe.duration(60 * 1000 * 4)}
+        entering={glowKeyframe.duration(DURATION)}
         style={styles.glow}
       >
         <Image
@@ -156,7 +161,7 @@ const styles = StyleSheet.create({
   splashLogo: {
     width: 180,
     height: 180,
-    resizeMode: "contain",
+    contentFit: "contain",
     alignItems: "center",
     justifyContent: "center",
   },

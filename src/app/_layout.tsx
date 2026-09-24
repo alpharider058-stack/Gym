@@ -1,12 +1,16 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import { DarkTheme, Stack, ThemeProvider, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
-import { Onboarding, WarriorProfile } from "@/components/onboarding";
+import Onboarding from "@/components/onboarding";
 import { LUXURY } from "@/constants/theme";
+import {
+  getActiveBlock,
+  getProfile,
+  type WarriorProfile,
+} from "@/lib/forge-storage";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,17 +31,32 @@ const VERTICE_THEME = {
 export default function TabLayout() {
   const [profile, setProfile] = useState<WarriorProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    AsyncStorage.getItem("vertice-profile").then((stored) => {
-      if (stored) setProfile(JSON.parse(stored));
+    let cancelled = false;
+    void (async () => {
+      const stored = await getProfile();
+      if (cancelled) return;
+      setProfile(stored);
       setLoading(false);
-    });
-  }, []);
+      if (stored) {
+        const active = await getActiveBlock();
+        if (active) {
+          setTimeout(() => {
+            router.push("/focus" as never);
+          }, 250);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
-  const finishOnboarding = (nextProfile: WarriorProfile) => {
-    setProfile(nextProfile);
-    AsyncStorage.setItem("vertice-profile", JSON.stringify(nextProfile));
+  const finishOnboarding = async () => {
+    const stored = await getProfile();
+    setProfile(stored);
   };
 
   return (
@@ -55,14 +74,24 @@ export default function TabLayout() {
           <ActivityIndicator color={LUXURY.gold} />
         </View>
       ) : profile ? (
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: LUXURY.ink } }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: LUXURY.ink },
+          }}
+        >
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="focus" options={{ presentation: "modal" }} />
-          <Stack.Screen name="breathing" options={{ presentation: "transparentModal", animation: "fade" }} />
-          <Stack.Screen name="victory" options={{ presentation: "modal", animation: "fade" }} />
+          <Stack.Screen
+            name="focus"
+            options={{
+              presentation: "fullScreenModal",
+              animation: "fade",
+              gestureEnabled: false,
+            }}
+          />
         </Stack>
       ) : (
-        <Onboarding onComplete={finishOnboarding} />
+        <Onboarding onFinished={finishOnboarding} />
       )}
     </ThemeProvider>
   );

@@ -13,13 +13,18 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LUXURY, SHADOWS } from "@/constants/theme";
-import { saveSession } from "@/lib/forge-storage";
+import { VictoryCapture } from "@/components/victory-capture";
+import {
+  getActiveConquest,
+  saveActiveConquest,
+  saveConquest,
+  type ConquestSession,
+} from "@/lib/forge-storage-victory";
 
-const PRESETS = [
-  { label: "Rápido · 15m", minutes: 15, cycles: 1, color: LUXURY.teal },
-  { label: "Pomodoro · 25m", minutes: 25, cycles: 1, color: LUXURY.gold },
-  { label: "Profundo · 45m", minutes: 45, cycles: 1, color: LUXURY.neon },
-  { label: "Maratón · 90m", minutes: 90, cycles: 1, color: LUXURY.violet },
+const CONQUEST_PRESETS = [
+  { label: "CONQUISTA ÉPOCA", minutes: 25, color: LUXURY.gold, icon: "⚔️" },
+  { label: "BATALLA MAESTRA", minutes: 50, color: LUXURY.emerald, icon: "🛡️" },
+  { label: "ASALTO DE GLORIA", minutes: 10, color: LUXURY.neon, icon: "⚡" },
 ];
 
 function formatTime(totalSeconds: number) {
@@ -28,50 +33,123 @@ function formatTime(totalSeconds: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export default function FocusScreen() {
+export default function TriumphRitual() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [preset, setPreset] = useState(PRESETS[1]);
-  const [task, setTask] = useState("");
-  const [running, setRunning] = useState(false);
+  const [preset, setPreset] = useState(CONQUEST_PRESETS[0]);
+  const [conquestName, setConquestName] = useState("");
+  const [ritualActive, setRitualActive] = useState(false);
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [finished, setFinished] = useState(false);
+  const [conquestComplete, setConquestComplete] = useState(false);
+  const [victoryClaimed, setVictoryClaimed] = useState(false);
   const [distractions, setDistractions] = useState(0);
   const startRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const savedConquestRef = useRef(false);
+  const activeConquestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getActiveConquest().then((stored) => {
+      if (!active || !stored) return;
+      activeConquestIdRef.current = stored.id;
+      const baseElapsed = stored.elapsedSeconds ?? 0;
+      const elapsedSeconds = Math.min(
+        stored.durationMin * 60,
+        baseElapsed + (stored.paused ? 0 : Math.max(0, (Date.now() - stored.startedAt) / 1000)),
+      );
+      setPreset(CONQUEST_PRESETS.find(p => p.label === stored.presetLabel) || CONQUEST_PRESETS[0]);
+      setConquestName(stored.conquestName);
+      setElapsed(elapsedSeconds);
+      setConquestComplete(elapsedSeconds >= stored.durationMin * 60);
+      setVictoryClaimed(stored.victoryClaimed);
+      setPaused(Boolean(stored.paused));
+      setRitualActive(!stored.paused && elapsedSeconds < stored.durationMin * 60);
+      startRef.current = Date.now() - elapsedSeconds * 1000;
+      if (!stored.paused && elapsedSeconds < stored.durationMin * 60) {
+        timerRef.current = setInterval(() => {
+          const next = Math.min(stored.durationMin * 60, (Date.now() - startRef.current) / 1000);
+          setElapsed(next);
+          if (next >= stored.durationMin * 60) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = null;
+            setRitualActive(false);
+            setConquestComplete(true);
+            void saveActiveConquest({ ...stored, elapsedSeconds: next, paused: true });
+          }
+        }, 250);
+      }
+    });
+    return () => {
+      active = false;
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const progress = useSharedValue(0);
   const pulse = useSharedValue(1);
   const scale = useSharedValue(1);
+  const victoryPulse = useSharedValue(1);
 
   useEffect(() => {
     progress.value = withTiming(
-      running ? elapsed / (preset.minutes * 60) : 0,
+      ritualActive ? elapsed / (preset.minutes * 60) : 0,
       { duration: 600, easing: Easing.out(Easing.cubic) },
     );
-  }, [elapsed, running, preset.minutes, progress]);
+  }, [elapsed, ritualActive, preset.minutes, progress]);
 
   useEffect(() => {
     pulse.value = withRepeat(
       withSequence(
-        withTiming(1.06, { duration: running ? 1600 : 3000 }),
-        withTiming(1, { duration: running ? 1600 : 3000 }),
+        withTiming(1.04, { duration: ritualActive ? 1200 : 2500 }),
+        withTiming(1, { duration: ritualActive ? 1200 : 2500 }),
       ),
       -1,
       true,
     );
-  }, [pulse, running]);
+  }, [pulse, ritualActive]);
 
-  const start = () => {
-    setRunning(true);
+  useEffect(() => {
+    if (conquestComplete && !victoryClaimed) {
+      victoryPulse.value = withRepeat(
+        withSequence(
+          withTiming(1.08, { duration: 600 }),
+          withTiming(1, { duration: 600 }),
+        ),
+        -1,
+        true,
+      );
+    } else {
+      victoryPulse.value = 1;
+    }
+  }, [conquestComplete, victoryClaimed]);
+
+  const startConquest = async () => {
+    if (timerRef.current) return;
+    setRitualActive(true);
     setPaused(false);
-    setFinished(false);
-    startRef.current = Date.now() - elapsed * 1000;
-    scale.value = withSpring(1.02, { damping: 14 });
+    setConquestComplete(false);
+    setVictoryClaimed(false);
+    setDistractions(0);
+    savedConquestRef.current = false;
+    const now = Date.now();
+    startRef.current = now - elapsed * 1000;
+    activeConquestIdRef.current ??= `conquest_${now}`;
+    await saveActiveConquest({
+      id: activeConquestIdRef.current,
+      conquestName: conquestName.trim() || "Conquista sin nombre",
+      presetLabel: preset.label,
+      durationMin: preset.minutes,
+      startedAt: now,
+      elapsedSeconds: elapsed,
+      paused: false,
+      victoryClaimed: false,
+    });
+    scale.value = withSpring(1.03, { damping: 12 });
     setTimeout(() => {
-      scale.value = withSpring(1, { damping: 14 });
-    }, 180);
+      scale.value = withSpring(1, { damping: 12 });
+    }, 200);
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
         const next = Math.min(
@@ -79,7 +157,7 @@ export default function FocusScreen() {
           (Date.now() - startRef.current) / 1000,
         );
         if (next >= preset.minutes * 60) {
-          stop(true);
+          claimVictory(true);
           return preset.minutes * 60;
         }
         return next;
@@ -87,23 +165,48 @@ export default function FocusScreen() {
     }, 250);
   };
 
-  const stop = (complete = false) => {
+  const claimVictory = (complete = false) => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     if (complete) {
-      setRunning(false);
-      setFinished(true);
+      setRitualActive(false);
+      setConquestComplete(true);
+      setVictoryClaimed(true);
     }
   };
 
-  const pauseResume = () => {
-    if (!running) return;
+  const pauseResume = async () => {
+    if (!ritualActive) return;
     if (!paused) {
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = null;
+      const elapsedNow = Math.min(preset.minutes * 60, (Date.now() - startRef.current) / 1000);
+      setElapsed(elapsedNow);
       setPaused(true);
+      const conquest: ConquestSession = {
+        id: activeConquestIdRef.current ?? `conquest_${Date.now()}`,
+        conquestName: conquestName.trim() || "Conquista sin nombre",
+        presetLabel: preset.label,
+        durationMin: preset.minutes,
+        startedAt: Date.now(),
+        elapsedSeconds: elapsedNow,
+        paused: true,
+        victoryClaimed: false,
+      };
+      activeConquestIdRef.current = conquest.id;
+      await saveActiveConquest(conquest);
     } else {
-      startRef.current = Date.now() - elapsed * 1000;
+      const now = Date.now();
+      startRef.current = now - elapsed * 1000;
+      await saveActiveConquest({
+        id: activeConquestIdRef.current ?? `conquest_${now}`,
+        conquestName: conquestName.trim() || "Conquista sin nombre",
+        presetLabel: preset.label,
+        durationMin: preset.minutes,
+        startedAt: now,
+        elapsedSeconds: elapsed,
+        paused: false,
+      });
       timerRef.current = setInterval(() => {
         setElapsed((prev) => {
           const next = Math.min(
@@ -111,7 +214,7 @@ export default function FocusScreen() {
             (Date.now() - startRef.current) / 1000,
           );
           if (next >= preset.minutes * 60) {
-            stop(true);
+            claimVictory(true);
             return preset.minutes * 60;
           }
           return next;
@@ -121,37 +224,48 @@ export default function FocusScreen() {
     }
   };
 
-  const cancel = () => {
+  const abandon = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    await saveActiveConquest(null);
+    activeConquestIdRef.current = null;
     router.back();
+    // En el camino del campeón, no hay retreat, solo diferentes caminos hacia la victoria
   };
 
-  const reset = () => {
+  const reset = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    setRunning(false);
+    timerRef.current = null;
+    await saveActiveConquest(null);
+    activeConquestIdRef.current = null;
+    setRitualActive(false);
     setPaused(false);
-    setFinished(false);
+    setConquestComplete(false);
+    setVictoryClaimed(false);
     setElapsed(0);
     setDistractions(0);
+    setConquestName("");
   };
 
-  const saveAndClose = async () => {
+  const claimAndClose = async () => {
+    if (savedConquestRef.current) return;
     const minutes = Math.max(1, Math.round(elapsed / 60));
-    await saveSession({
-      id: `focus_${Date.now()}`,
+    const xpEarned = minutes + Math.max(0, 10 - distractions);
+    await saveConquest({
+      id: activeConquestIdRef.current ?? `conquest_${Date.now()}`,
       date: new Date().toISOString(),
-      type:
-        minutes >= 60 ? "deep" : minutes >= 20 ? "standard" : "quick",
+      conquestName: conquestName.trim() || "Conquista sin nombre",
+      presetLabel: preset.label,
       minutes,
-      cycles: preset.cycles,
+      xp: xpEarned,
       distractions,
-      task: task.trim() || undefined,
-      xp: minutes + Math.max(0, 10 - distractions),
     });
-    router.back();
+    await saveActiveConquest(null);
+    savedConquestRef.current = true;
+    router.push("/conquest-victory" as never);
   };
 
-  const ringColor = finished ? LUXURY.emerald : preset.color;
+  const ringColor = conquestComplete && victoryClaimed ? LUXURY.emerald : preset.color;
   const ringTrackStyle = useAnimatedStyle(() => ({
     transform: [
       { rotateZ: `${progress.value * 360}deg` },
@@ -163,6 +277,9 @@ export default function FocusScreen() {
   const scaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+  const victoryPulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: victoryPulse.value }],
+  }));
 
   return (
     <View style={styles.root}>
@@ -170,71 +287,62 @@ export default function FocusScreen() {
         <View style={styles.header}>
           <Pressable
             style={({ pressed }) => [styles.closeChip, pressed && styles.pressed]}
-            onPress={cancel}
+            onPress={abandon}
           >
-            <Text style={styles.closeChipText}>× Cerrar</Text>
+            <Text style={styles.closeChipText}>× Abandonar</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>ENFOQUE PROFUNDO</Text>
+          <Text style={styles.headerTitle}>RITUAL DEL TRIUNFO</Text>
           <View style={styles.placeholder} />
         </View>
       </View>
 
-      {!running ? (
-        <View style={styles.panel}>
-          <Text style={styles.sectionLabel}>Escoge el nivel de fuego</Text>
-          <View style={styles.presets}>
-            {PRESETS.map((p) => {
-              const selected = preset.label === p.label;
-              return (
-                <Pressable
-                  key={p.label}
-                  style={[
-                    styles.preset,
-                    selected && {
-                      borderColor: `${p.color}77`,
-                      backgroundColor: `${p.color}18`,
-                    },
-                  ]}
-                  onPress={() => setPreset(p)}
-                >
-                  <View style={[styles.presetDot, { backgroundColor: p.color }]} />
-                  <Text
-                    style={[
-                      styles.presetLabel,
-                      selected && { color: p.color },
-                    ]}
-                  >
-                    {p.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.sectionLabel}>¿Qué vas a forjar en este tiempo?</Text>
+      {!ritualActive ? (
+        <View style={styles.preparationPanel}>
+          <Text style={styles.sectionLabel}>Nombre de tu conquista</Text>
           <TextInput
-            value={task}
-            onChangeText={setTask}
-            placeholder="Ej: Estudiar módulo 4 · proyecto · escritura…"
+            value={conquestName}
+            onChangeText={(val) => setConquestName(val)}
+            placeholder="Ej: Dominar el proyecto, Conquistar el miedo, etc."
             placeholderTextColor={LUXURY.ash}
             selectionColor={LUXURY.gold}
-            style={styles.input}
+            style={styles.conquestInput}
           />
 
+          <Text style={styles.sectionLabel}>Selecciona tu tipo de batalla</Text>
+          <View style={presetsContainer}>
+            {CONQUEST_PRESETS.map((presetItem, index) => (
+              <Pressable
+                key={index}
+                style={[
+                  presetButton,
+                  preset === presetItem && presetButtonActive,
+                ]}
+                onPress={() => setPreset(presetItem)}
+              >
+                <View style={[presetIconContainer, { backgroundColor: `${presetItem.color}11` }]}>
+                  <Text style={presetIconText}>{presetItem.icon}</Text>
+                </View>
+                <View style={presetTextContainer}>
+                  <Text style={presetLabelText}>{presetItem.label}</Text>
+                  <Text style={presetDurationText}>{presetItem.minutes} min</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+
           <Pressable
-            style={({ pressed }) => [styles.startButton, pressed && styles.pressed]}
-            onPress={start}
+            style={({ pressed }) => [startButton, pressed && startButtonPressed]}
+            onPress={startConquest}
           >
-            <Text style={styles.startText}>ENCENDER EL FOCO →</Text>
+            <Text style={startText}>INICIAR RITUAL DEL TRIUNFO →</Text>
           </Pressable>
 
-          <Text style={styles.hint}>
-            Silencia notificaciones. Avisa a los que te interrumpan de que tu
-            mente está ocupada construyendo tu mejor versión.
+          <Text style={hintText}>
+            El verdadero guerrero no espera el momento perfecto. Él lo crea.
           </Text>
         </View>
       ) : (
-        <View style={styles.timerPanel}>
+        <View style={styles.ritualPanel}>
           <Animated.View style={[styles.ringWrap, scaleStyle]}>
             <Animated.View
               style={[
@@ -269,11 +377,11 @@ export default function FocusScreen() {
                   {formatTime(Math.max(0, preset.minutes * 60 - elapsed))}
                 </Text>
                 <Text style={styles.timeLabel}>
-                  {finished
-                    ? "SESIÓN COMPLETA"
+                  {conquestComplete
+                    ? "¡CONQUISTA LOGRADA!"
                     : paused
-                      ? "EN PAUSA"
-                      : "RESTANTE"}
+                      ? "EN PAUSA TÁCTICA"
+                      : "EN BATALLA"}
                 </Text>
               </View>
             </View>
@@ -299,44 +407,81 @@ export default function FocusScreen() {
               </View>
             </View>
             <View style={styles.metaChip}>
-              <Text style={styles.metaLabel}>Tiempo</Text>
+              <Text style={styles.metaLabel}>Conquista</Text>
               <Text style={styles.metaValue}>
-                {Math.round(elapsed / 60)}/{preset.minutes}m
+                {conquestName.trim() || "Sin nombre"}
               </Text>
             </View>
           </View>
 
-          <View style={styles.actions}>
-            <Pressable
-              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-              onPress={reset}
-            >
-              <Text style={styles.secondaryText}>REINICIAR</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.primaryButton,
-                {
-                  backgroundColor: finished
-                    ? LUXURY.emerald
-                    : paused
-                      ? preset.color
-                      : LUXURY.graphite,
-                },
-                pressed && styles.pressed,
-              ]}
-              onPress={finished ? saveAndClose : pauseResume}
-            >
-              <Text
-                style={[
-                  styles.primaryText,
-                  !finished && !paused && { color: preset.color },
-                ]}
-              >
-                {finished ? "SELLAR SESIÓN →" : paused ? "REANUDAR" : "PAUSAR"}
+          {conquestComplete && !victoryClaimed && (
+            <View style={victoryPromptContainer}>
+              <Text style={victoryPromptTitle}>¡VICTORIA LOGRADA!</Text>
+              <Text style={victoryPromptText}>
+                Has completado tu ritual de conquista. Ahora reclama tu triunfo.
               </Text>
-            </Pressable>
-          </View>
+              <Pressable
+                style={({ pressed }) => [
+                  victoryButton,
+                  pressed && victoryButtonPressed,
+                ]}
+                onPress={() => claimAndClose()}
+              >
+                <Text style={victoryButtonText}>RECLAMAR VICTORIA →</Text>
+              </Pressable>
+              <Animated.View style={victoryPulseStyle}>
+                <Text style={victoryPulseText}>⚡⚡⚡</Text>
+              </Animated.View>
+            </View>
+          )}
+
+          {conquestComplete && victoryClaimed && (
+            <View style={victoryCelebration}>
+              <Text style={victoryCelebrationTitle}>¡VICTORIA RECLAMADA!</Text>
+              <Text style={victoryCelebrationText}>
+                Tu nombre será grabado en el Salón de los Campeones.
+              </Text>
+              <View style={victoryCelebrationIcons}>
+                <Text style={victoryCelebrationIcon}>🏆</Text>
+                <Text style={victoryCelebrationIcon}>⚔️</Text>
+                <Text style={victoryCelebrationIcon}>👑</Text>
+              </View>
+            </View>
+          )}
+
+          {!conquestComplete && (
+            <View style={styles.actions}>
+              <Pressable
+                style={({ pressed }) => [secondaryButton, pressed && secondaryButtonPressed]}
+                onPress={reset}
+              >
+                <Text style={secondaryText}>REINICIAR</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  primaryButton,
+                  {
+                    backgroundColor: conquestComplete
+                      ? LUXURY.emerald
+                      : paused
+                        ? preset.color
+                        : LUXURY.graphite,
+                  },
+                  pressed && primaryButtonPressed,
+                ]}
+                onPress={conquestComplete ? claimAndClose : pauseResume}
+              >
+                <Text
+                  style={[
+                    primaryText,
+                    !conquestComplete && !paused && { color: preset.color },
+                  ]}
+                >
+                  {conquestComplete ? "RECLAMAR VICTORIA →" : paused ? "REANUDAR" : "PAUSAR"}
+                </Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       )}
     </View>
@@ -367,7 +512,8 @@ const styles = StyleSheet.create({
   },
   closeChipText: { color: LUXURY.pearl, fontSize: 13, fontWeight: "700" },
   placeholder: { width: 68 },
-  panel: { flex: 1, paddingHorizontal: 20, paddingTop: 6 },
+  preparationPanel: { flex: 1, paddingHorizontal: 20, paddingTop: 6 },
+  ritualPanel: { flex: 1, paddingHorizontal: 20, paddingTop: 6 },
   sectionLabel: {
     color: LUXURY.ash,
     fontSize: 11,
@@ -376,34 +522,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginTop: 8,
   },
-  presets: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 10,
-  },
-  preset: {
-    width: "48%",
-    backgroundColor: LUXURY.graphite,
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderColor: LUXURY.charcoal,
-  },
-  presetDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  presetLabel: {
-    color: LUXURY.snow,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  input: {
+  conquestInput: {
     backgroundColor: LUXURY.graphite,
     borderRadius: 18,
     minHeight: 54,
@@ -414,92 +533,72 @@ const styles = StyleSheet.create({
     borderColor: LUXURY.charcoal,
     marginBottom: 18,
   },
+  presetsContainer: {
+    marginVertical: 16,
+  },
+  presetButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: LUXURY.graphite,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: LUXURY.charcoal,
+  },
+  presetButtonActive: {
+    borderColor: `${LUXURY.gold}66`,
+    backgroundColor: `${LUXURY.gold}11`,
+  },
+  presetIconContainer: {
+    marginRight: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  presetIconText: {
+    fontSize: 20,
+  },
+  presetTextContainer: {
+    flex: 1,
+  },
+  presetLabelText: {
+    color: LUXURY.snow,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  presetDurationText: {
+    color: LUXURY.mist,
+    fontSize: 12,
+  },
   startButton: {
     minHeight: 58,
     backgroundColor: LUXURY.gold,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
     ...SHADOWS.gold,
   },
+  startButtonPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
   startText: {
     color: LUXURY.ink,
     fontSize: 15,
     fontWeight: "900",
     letterSpacing: 1.2,
   },
-  hint: {
+  hintText: {
     color: LUXURY.mist,
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "500",
   },
-  timerPanel: {
+  ritualPanel: {
     flex: 1,
     paddingHorizontal: 20,
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 20,
-  },
-  ringWrap: { alignItems: "center", width: 280, height: 280, justifyContent: "center" },
-  ringGlow: {
-    position: "absolute",
-    width: 290,
-    height: 290,
-    borderRadius: 145,
-  },
-  ring: {
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  ringTrack: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    borderRadius: 130,
-    borderWidth: 14,
-  },
-  ringMask: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    borderRadius: 130,
-  },
-  ringFill: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    borderRadius: 130,
-    borderWidth: 14,
-    borderLeftColor: "transparent",
-    borderBottomColor: "transparent",
-  },
-  ringInnerGlow: {
-    position: "absolute",
-    width: 208,
-    height: 208,
-    borderRadius: 104,
-    backgroundColor: LUXURY.obsidian,
-    borderWidth: 1,
-    borderColor: `${LUXURY.charcoal}`,
-  },
-  timeWrap: { alignItems: "center", zIndex: 3 },
-  time: {
-    fontSize: 58,
-    fontWeight: "900",
-    letterSpacing: 2,
-  },
-  timeLabel: {
-    color: LUXURY.ash,
-    fontSize: 11,
-    letterSpacing: 2,
-    fontWeight: "800",
-    marginTop: 8,
+    paddingTop: 6,
   },
   meta: {
     width: "100%",
@@ -559,6 +658,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: LUXURY.charcoal,
   },
+  secondaryButtonPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
   secondaryText: {
     color: LUXURY.pearl,
     fontSize: 13,
@@ -574,11 +674,132 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${LUXURY.gold}22`,
   },
+  primaryButtonPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
   primaryText: {
     color: LUXURY.ink,
     fontSize: 14,
     fontWeight: "900",
     letterSpacing: 1,
   },
-  pressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
+  victoryPromptContainer: {
+    backgroundColor: `${LUXURY.emerald}11`,
+    borderRadius: 20,
+    padding: 24,
+    marginVertical: 20,
+    alignItems: "center",
+  },
+  victoryPromptTitle: {
+    color: LUXURY.emerald,
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  victoryPromptText: {
+    color: LUXURY.snow,
+    fontSize: 16,
+    textAlign: "center",
+  },
+  victoryButton: {
+    backgroundColor: LUXURY.emerald,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 50,
+    marginTop: 16,
+  },
+  victoryButtonPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+  victoryButtonText: {
+    color: LUXURY.ink,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  victoryPulseText: {
+    color: LUXURY.emerald,
+    fontSize: 24,
+    fontWeight: "800",
+  },
+  victoryCelebration: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+  },
+  victoryCelebrationTitle: {
+    color: LUXURY.gold,
+    fontSize: 24,
+    fontWeight: "800",
+    marginBottom: 16,
+  },
+  victoryCelebrationText: {
+    color: LUXURY.snow,
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  victoryCelebrationIcons: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 16,
+  },
+  victoryCelebrationIcon: {
+    fontSize: 32,
+  },
+  timeWrap: { alignItems: "center", zIndex: 3 },
+  time: {
+    fontSize: 58,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
+  timeLabel: {
+    color: LUXURY.ash,
+    fontSize: 11,
+    letterSpacing: 2,
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  ringWrap: { alignItems: "center", width: 280, height: 280, justifyContent: "center" },
+  ringGlow: {
+    position: "absolute",
+    width: 290,
+    height: 290,
+    borderRadius: 145,
+  },
+  ring: {
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  ringTrack: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    borderRadius: 130,
+    borderWidth: 14,
+  },
+  ringMask: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    borderRadius: 130,
+  },
+  ringFill: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    borderRadius: 130,
+    borderWidth: 14,
+    borderLeftColor: "transparent",
+    borderBottomColor: "transparent",
+  },
+  ringInnerGlow: {
+    position: "absolute",
+    width: 208,
+    height: 208,
+    borderRadius: 104,
+    backgroundColor: LUXURY.obsidian,
+    borderWidth: 1,
+    borderColor: `${LUXURY.charcoal}`,
+  },
 });
